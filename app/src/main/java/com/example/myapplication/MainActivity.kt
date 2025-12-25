@@ -1,65 +1,94 @@
 package com.example.myapplication
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.Button
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.*
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.core.app.ActivityCompat
-import com.example.myapplication.Song
-// Removed unused import of SongList
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
+import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.session.MediaSessionCompat
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
-import android.provider.MediaStore
-
-import androidx.compose.foundation.clickable
-import androidx.compose.ui.graphics.Color
-
 
 /**
  * Main activity that displays a list of audio files from the device and provides playback controls.
  */
 class MainActivity : ComponentActivity() {
+
+    // ✅ Make songs observable by Compose
+    private var songs by mutableStateOf<List<Song>>(emptyList())
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted -> if (granted) loadSongs() }
+    ) { granted ->
+        if (granted) loadSongs()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Request READ_MEDIA_AUDIO permission
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO)
-            != PackageManager.PERMISSION_GRANTED) {
-            requestPermissionLauncher.launch(Manifest.permission.READ_MEDIA_AUDIO)
+
+        requestAudioPermissionAndLoad()
+
+        // Start the foreground music service so lockscreen controls work.
+        val intent = Intent(this, MusicService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
         } else {
-            loadSongs()
+            startService(intent)
+        }
+
+        setContent { MainScreen() }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Ensure permission is still granted
+        requestAudioPermissionAndLoad()
+    }
+
+    private fun requestAudioPermissionAndLoad() {
+        val permission =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                Manifest.permission.READ_MEDIA_AUDIO
+            else
+                Manifest.permission.READ_EXTERNAL_STORAGE
+
+        if (ActivityCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissionLauncher.launch(permission)
+        } else {
+            if (songs.isEmpty()) loadSongs()
         }
     }
 
-    private var songs: List<Song> = emptyList()
     private fun loadSongs() {
         val context = this
         val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
@@ -68,35 +97,33 @@ class MainActivity : ComponentActivity() {
             MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.DATA
         )
+
         val cursor = context.contentResolver.query(uri, projection, null, null, null)
         val list = mutableListOf<Song>()
+
         cursor?.use {
             while (it.moveToNext()) {
-                val id = it.getLong(it.getColumnIndexOrThrow(MediaStore.Audio.Media._ID))
-                val title = it.getString(it.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)) ?: "Unknown"
+                val title =
+                    it.getString(it.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)) ?: "Unknown"
                 val dataPath = it.getString(it.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA))
                 if (dataPath != null) {
                     list.add(Song(title, Uri.fromFile(java.io.File(dataPath))))
                 }
             }
         }
-        songs = list
-    }
 
-    @RequiresApi(33)
-    override fun onResume() {
-        super.onResume()
-        // Ensure permission is still granted
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO)
-            != PackageManager.PERMISSION_GRANTED) {
-            requestPermissionLauncher.launch(Manifest.permission.READ_MEDIA_AUDIO)
-        }
+        songs = list
     }
 
     @Composable
     fun MainScreen() {
         val context = LocalContext.current
+
         val player = remember { ExoPlayer.Builder(context).build() }
+        val session = remember {
+            MediaSessionCompat(context, "MusicBox").apply { isActive = true }
+        }
+
         var currentIndex by remember { mutableStateOf(-1) }
         var isPlaying by remember { mutableStateOf(false) }
         var isShuffled by remember { mutableStateOf(false) }
@@ -107,23 +134,36 @@ class MainActivity : ComponentActivity() {
                 val mediaItem = MediaItem.fromUri(songs[currentIndex].uri)
                 player.setMediaItem(mediaItem)
                 player.prepare()
+
+                // ✅ Use compat metadata (matches MediaSessionCompat)
+                val metadata = MediaMetadataCompat.Builder()
+                    .putString(MediaMetadataCompat.METADATA_KEY_TITLE, songs[currentIndex].title)
+                    .build()
+                session.setMetadata(metadata)
+
                 if (isPlaying) player.play()
             }
         }
 
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             Column(modifier = Modifier.padding(innerPadding)) {
-                // Display current playing song
-                // Highlight the currently playing title
+
                 Text(
-                    text = if (currentIndex >= 0 && currentIndex < songs.size) "Now Playing: ${songs[currentIndex].title}" else "No song selected",
+                    text = if (currentIndex in songs.indices)
+                        "Now Playing: ${songs[currentIndex].title}"
+                    else
+                        "No song selected",
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
                         .padding(8.dp)
-                        .background(MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(4.dp))
+                        .background(
+                            MaterialTheme.colorScheme.secondaryContainer,
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .padding(8.dp)
                 )
-                // Song list
+
                 LazyColumn(
                     modifier = Modifier.weight(1f)
                 ) {
@@ -132,14 +172,17 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(8.dp)
-                                .clickable { currentIndex = index; isPlaying = true }
+                                .clickable {
+                                    currentIndex = index
+                                    isPlaying = true
+                                    player.play()
+                                }
                         ) {
                             Text(text = song.title, modifier = Modifier.weight(1f))
                         }
                     }
                 }
 
-                // Controls
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -149,7 +192,6 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Button(onClick = {
                         if (isShuffled) {
-                            // Random previous
                             if (songs.isNotEmpty()) {
                                 currentIndex = (0 until songs.size).random()
                                 isPlaying = true
@@ -163,6 +205,7 @@ class MainActivity : ComponentActivity() {
                     }) {
                         Icon(Icons.Default.SkipPrevious, contentDescription = "Prev")
                     }
+
                     Button(onClick = {
                         if (isPlaying) {
                             player.pause()
@@ -172,11 +215,14 @@ class MainActivity : ComponentActivity() {
                             isPlaying = true
                         }
                     }) {
-                        Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = "Play/Pause")
+                        Icon(
+                            if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = "Play/Pause"
+                        )
                     }
+
                     Button(onClick = {
                         if (isShuffled) {
-                            // Random next
                             if (songs.isNotEmpty()) {
                                 currentIndex = (0 until songs.size).random()
                                 isPlaying = true
@@ -190,8 +236,7 @@ class MainActivity : ComponentActivity() {
                     }) {
                         Icon(Icons.Default.SkipNext, contentDescription = "Next")
                     }
-                    // Shuffle toggle button
-                    // Shuffle toggle button with visual feedback
+
                     Button(onClick = { isShuffled = !isShuffled }) {
                         Icon(
                             imageVector = Icons.Default.Shuffle,
@@ -203,14 +248,12 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Release player when composable leaves composition
-        DisposableEffect(player) {
-            onDispose { player.release() }
+        // Release resources when composable leaves composition
+        DisposableEffect(Unit) {
+            onDispose {
+                player.release()
+                session.release()
+            }
         }
-    }
-
-    override fun onStart() {
-        super.onStart()
-        setContent { MainScreen() }
     }
 }
