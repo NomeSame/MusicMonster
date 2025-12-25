@@ -27,6 +27,7 @@ import com.example.myapplication.Song
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import com.google.android.exoplayer2.ExoPlayer
@@ -95,6 +96,7 @@ class MainActivity : ComponentActivity() {
         val player = remember { ExoPlayer.Builder(context).build() }
         var currentIndex by remember { mutableStateOf(-1) }
         var isPlaying by remember { mutableStateOf(false) }
+        var isShuffled by remember { mutableStateOf(false) }
 
         // Update player when song changes
         LaunchedEffect(currentIndex) {
@@ -108,6 +110,12 @@ class MainActivity : ComponentActivity() {
 
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             Column(modifier = Modifier.padding(innerPadding)) {
+                // Display current playing song
+                Text(
+                    text = if (currentIndex >= 0 && currentIndex < songs.size) "Now Playing: ${songs[currentIndex].title}" else "No song selected",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(8.dp)
+                )
                 // Song list
                 LazyColumn(
                     modifier = Modifier.weight(1f)
@@ -133,9 +141,17 @@ class MainActivity : ComponentActivity() {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Button(onClick = {
-                        if (currentIndex > 0) {
-                            currentIndex--
-                            isPlaying = true
+                        if (isShuffled) {
+                            // Random previous
+                            if (songs.isNotEmpty()) {
+                                currentIndex = (0 until songs.size).random()
+                                isPlaying = true
+                            }
+                        } else {
+                            if (currentIndex > 0) {
+                                currentIndex--
+                                isPlaying = true
+                            }
                         }
                     }) {
                         Icon(Icons.Default.SkipPrevious, contentDescription = "Prev")
@@ -152,12 +168,27 @@ class MainActivity : ComponentActivity() {
                         Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = "Play/Pause")
                     }
                     Button(onClick = {
-                        if (currentIndex < songs.size - 1) {
-                            currentIndex++
-                            isPlaying = true
+                        if (isShuffled) {
+                            // Random next
+                            if (songs.isNotEmpty()) {
+                                currentIndex = (0 until songs.size).random()
+                                isPlaying = true
+                            }
+                        } else {
+                            if (currentIndex < songs.size - 1) {
+                                currentIndex++
+                                isPlaying = true
+                            }
                         }
                     }) {
                         Icon(Icons.Default.SkipNext, contentDescription = "Next")
+                    }
+                    // Shuffle toggle button
+                    Button(onClick = { isShuffled = !isShuffled }) {
+                        Icon(
+                            imageVector = if (isShuffled) Icons.Default.Shuffle else Icons.Default.Shuffle,
+                            contentDescription = "Shuffle"
+                        )
                     }
                 }
             }
