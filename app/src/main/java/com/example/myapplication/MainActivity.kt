@@ -21,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.core.app.ActivityCompat
 import com.example.myapplication.Song
 // Removed unused import of SongList
@@ -35,6 +37,7 @@ import com.google.android.exoplayer2.MediaItem
 import android.provider.MediaStore
 
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.Color
 
 
 /**
@@ -111,10 +114,14 @@ class MainActivity : ComponentActivity() {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             Column(modifier = Modifier.padding(innerPadding)) {
                 // Display current playing song
+                // Highlight the currently playing title
                 Text(
                     text = if (currentIndex >= 0 && currentIndex < songs.size) "Now Playing: ${songs[currentIndex].title}" else "No song selected",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(8.dp)
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .background(MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(4.dp))
                 )
                 // Song list
                 LazyColumn(
@@ -184,9 +191,11 @@ class MainActivity : ComponentActivity() {
                         Icon(Icons.Default.SkipNext, contentDescription = "Next")
                     }
                     // Shuffle toggle button
+                    // Shuffle toggle button with visual feedback
                     Button(onClick = { isShuffled = !isShuffled }) {
                         Icon(
-                            imageVector = if (isShuffled) Icons.Default.Shuffle else Icons.Default.Shuffle,
+                            imageVector = Icons.Default.Shuffle,
+                            tint = if (isShuffled) Color.Green else Color.Unspecified,
                             contentDescription = "Shuffle"
                         )
                     }
