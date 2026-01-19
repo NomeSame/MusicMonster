@@ -520,12 +520,12 @@ class MainActivity : ComponentActivity() {
                                 Text(
                                     text = formatTime(effectivePosition),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = Color.Black
                                 )
                                 Text(
                                     text = formatTime(durationMs),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = Color.Black
                                 )
                             }
                         }

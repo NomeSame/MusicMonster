@@ -16,6 +16,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.app.PendingIntent
 import android.annotation.SuppressLint
+import android.graphics.Color
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ActivityCompat
 import androidx.media.session.MediaButtonReceiver
@@ -356,9 +357,13 @@ class MusicService : Service() {
             // title appear larger on the lock screen.
             .setContentTitle(currentTitle)
             .setContentText("")
+            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
+            .setOngoing(isPlaying)
+            .setColor(Color.parseColor("#69D3C3"))
+            .setColorized(true)
             .addAction(android.R.drawable.ic_media_previous, "Previous", pendingIntentPrev)
             .addAction(playPauseIcon, if (isPlaying) "Pause" else "Play", pendingIntentPlayPause)
             .addAction(android.R.drawable.ic_media_next, "Next", pendingIntentNext)
@@ -366,7 +371,7 @@ class MusicService : Service() {
             .setStyle(
                 androidx.media.app.NotificationCompat.MediaStyle()
                     .setMediaSession(session.sessionToken)
-                    .setShowActionsInCompactView(0, 1, 2, 3)
+                    .setShowActionsInCompactView(0, 1, 2)
             )
             .build()
     }
