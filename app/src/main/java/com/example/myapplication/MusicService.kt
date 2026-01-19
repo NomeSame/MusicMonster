@@ -17,6 +17,7 @@ import android.os.SystemClock
 import android.app.PendingIntent
 import android.annotation.SuppressLint
 import android.graphics.Color
+import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ActivityCompat
 import androidx.media.session.MediaButtonReceiver
@@ -364,6 +365,39 @@ class MusicService : Service() {
         val shuffleOn = player.shuffleModeEnabled
         val shuffleLabel = if (shuffleOn) "Shuffle On" else "Shuffle Off"
 
+        val duration = player.duration.takeIf { it > 0L } ?: 0L
+        val position = player.currentPosition.coerceAtLeast(0L)
+        val contentView = RemoteViews(packageName, R.layout.notification_music_monster).apply {
+            setTextViewText(R.id.notif_title, currentTitle)
+            setTextViewText(R.id.notif_time_current, formatTime(position))
+            setTextViewText(R.id.notif_time_duration, formatTime(duration))
+            setProgressBar(
+                R.id.notif_progress,
+                duration.toInt().coerceAtLeast(1),
+                position.toInt().coerceAtLeast(0),
+                false
+            )
+        }
+
+        val publicNotification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(currentTitle)
+            .setContentText("")
+            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOnlyAlertOnce(true)
+            .setOngoing(isPlaying)
+            .addAction(android.R.drawable.ic_media_previous, "Previous", pendingIntentPrev)
+            .addAction(playPauseIcon, if (isPlaying) "Pause" else "Play", pendingIntentPlayPause)
+            .addAction(android.R.drawable.ic_media_next, "Next", pendingIntentNext)
+            .setStyle(
+                androidx.media.app.NotificationCompat.MediaStyle()
+                    .setMediaSession(session.sessionToken)
+                    .setShowActionsInCompactView(0, 1, 2)
+            )
+            .build()
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             // Use the current track title as the notification title so that
@@ -383,12 +417,22 @@ class MusicService : Service() {
             .addAction(playPauseIcon, if (isPlaying) "Pause" else "Play", pendingIntentPlayPause)
             .addAction(android.R.drawable.ic_media_next, "Next", pendingIntentNext)
             .addAction(R.drawable.ic_shuffle, shuffleLabel, pendingIntentShuffle)
+            .setCustomContentView(contentView)
+            .setCustomBigContentView(contentView)
             .setStyle(
-                androidx.media.app.NotificationCompat.MediaStyle()
+                androidx.media.app.NotificationCompat.DecoratedMediaCustomViewStyle()
                     .setMediaSession(session.sessionToken)
                     .setShowActionsInCompactView(0, 1, 2)
             )
+            .setPublicVersion(publicNotification)
             .build()
+    }
+
+    private fun formatTime(timeMs: Long): String {
+        val totalSeconds = (timeMs / 1000).coerceAtLeast(0)
+        val minutes = totalSeconds / 60
+        val seconds = totalSeconds % 60
+        return String.format("%d:%02d", minutes, seconds)
     }
 
     @SuppressLint("MissingPermission")

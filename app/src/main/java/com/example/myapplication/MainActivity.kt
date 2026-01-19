@@ -89,6 +89,8 @@ class MainActivity : ComponentActivity() {
     private val eqEnabled = mutableStateOf(true)
     private val eqBandLevels = mutableStateListOf<Int>()
     private val eqBandCount = mutableStateOf(0)
+    private val eqBandHz = mutableStateListOf<Int>()
+    private var equalizer: Equalizer? = null
     private var controllerReady by mutableStateOf(false)
     private var serviceStarted = false
 
@@ -269,7 +271,10 @@ class MainActivity : ComponentActivity() {
 
                         override fun onExtrasChanged(extras: Bundle?) {
                             val id = extras?.getInt("audio_session_id") ?: 0
-                            if (id != 0) audioSessionId.value = id
+                            if (id != 0) {
+                                audioSessionId.value = id
+                                setupEqualizerForSession(id)
+                            }
                         }
                     })
 
@@ -282,6 +287,9 @@ class MainActivity : ComponentActivity() {
                         ?.getLong(MediaMetadataCompat.METADATA_KEY_DURATION) ?: 0L
                     playbackPositionMs.value = mediaController.playbackState?.position ?: 0L
                     audioSessionId.value = mediaController.extras?.getInt("audio_session_id") ?: 0
+                    if (audioSessionId.value != 0) {
+                        setupEqualizerForSession(audioSessionId.value)
+                    }
                     controllerReady = true // ✅ put this here (triggers recomposition)
                 } else {
                     handler.postDelayed(this, 500)
@@ -672,6 +680,37 @@ class MainActivity : ComponentActivity() {
         return String.format("%d:%02d", minutes, seconds)
     }
 
+    private fun setupEqualizerForSession(sessionId: Int) {
+        equalizer?.release()
+        equalizer = null
+        if (sessionId == 0) return
+        try {
+            val eq = Equalizer(0, sessionId)
+            eq.enabled = eqEnabled.value
+            val bandCount = eq.numberOfBands.toInt()
+            val range = eq.bandLevelRange
+            if (eqBandLevels.size != bandCount || eqBandCount.value != bandCount) {
+                eqBandLevels.clear()
+                eqBandHz.clear()
+                repeat(bandCount) { bandIndex ->
+                    val band = bandIndex.toShort()
+                    eqBandLevels.add(eq.getBandLevel(band).toInt())
+                    eqBandHz.add((eq.getCenterFreq(band) / 1000).toInt())
+                }
+                eqBandCount.value = bandCount
+            } else {
+                for (bandIndex in 0 until bandCount) {
+                    val band = bandIndex.toShort()
+                    val level = eqBandLevels[bandIndex]
+                    eq.setBandLevel(band, level.toShort().coerceIn(range[0], range[1]))
+                }
+            }
+            equalizer = eq
+        } catch (_: Throwable) {
+            equalizer = null
+        }
+    }
+
     @Composable
     private fun VisualizerPanel(
         audioSessionId: Int,
@@ -716,21 +755,7 @@ class MainActivity : ComponentActivity() {
         eqBandLevels: MutableList<Int>,
         eqBandCount: MutableState<Int>
     ) {
-        val equalizer = remember(audioSessionId) {
-            if (audioSessionId != 0) {
-                try {
-                    Equalizer(0, audioSessionId).apply { this.enabled = eqEnabled }
-                } catch (_: Throwable) {
-                    null
-                }
-            } else {
-                null
-            }
-        }
-
-        DisposableEffect(equalizer) {
-            onDispose { equalizer?.release() }
-        }
+        val equalizer = equalizer
 
         Column(
             modifier = Modifier
@@ -794,7 +819,7 @@ class MainActivity : ComponentActivity() {
 
             repeat(bandCount) { bandIndex ->
                 val band = bandIndex.toShort()
-                val centerHz = equalizer.getCenterFreq(band) / 1000
+                val centerHz = eqBandHz.getOrNull(bandIndex) ?: (equalizer.getCenterFreq(band) / 1000).toInt()
                 val level = eqBandLevels[bandIndex]
 
                 Text(
