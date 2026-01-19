@@ -11,6 +11,11 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
 import android.provider.MediaStore
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.app.PendingIntent
+import android.annotation.SuppressLint
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ActivityCompat
 import androidx.media.session.MediaButtonReceiver
@@ -29,6 +34,15 @@ import android.support.v4.media.MediaMetadataCompat
 class MusicService : Service() {
     private lateinit var player: ExoPlayer
     private lateinit var session: MediaSessionCompat
+    private val positionHandler = Handler(Looper.getMainLooper())
+    private val positionUpdate = object : Runnable {
+        override fun run() {
+            setPlaybackState(player.isPlaying)
+            if (player.isPlaying) {
+                positionHandler.postDelayed(this, 1000L)
+            }
+        }
+    }
 
     // Keep titles in parallel with playlist for notification text
     private var titles: List<String> = emptyList()
@@ -36,6 +50,7 @@ class MusicService : Service() {
     companion object {
         const val CHANNEL_ID = "monsterplayer_channel"
         const val NOTIFICATION_ID = 1
+        const val ACTION_TOGGLE_SHUFFLE = "com.example.myapplication.action.TOGGLE_SHUFFLE"
         /**
          * Holds the session token once the service has created its MediaSession.
          * Activities can read this to construct a {@link MediaControllerCompat}.
@@ -131,6 +146,14 @@ class MusicService : Service() {
                     val enabled = shuffleMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
                     player.shuffleModeEnabled = enabled
                     session.setShuffleMode(shuffleMode)
+                    setPlaybackState(player.isPlaying)
+                    updateNotification(player.isPlaying)
+                }
+
+                override fun onSeekTo(pos: Long) {
+                    player.seekTo(pos.coerceAtLeast(0L))
+                    setPlaybackState(player.isPlaying)
+                    updateSessionMetadata()
                     updateNotification(player.isPlaying)
                 }
 
@@ -152,10 +175,25 @@ class MusicService : Service() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 setPlaybackState(isPlaying)
                 updateNotification(isPlaying)
+                if (isPlaying) {
+                    positionHandler.removeCallbacks(positionUpdate)
+                    positionHandler.post(positionUpdate)
+                } else {
+                    positionHandler.removeCallbacks(positionUpdate)
+                }
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    updateSessionMetadata()
+                    setPlaybackState(player.isPlaying)
+                    updateNotification(player.isPlaying)
+                }
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 updateSessionMetadata()
+                setPlaybackState(player.isPlaying)
                 updateNotification(player.isPlaying)
             }
         })
@@ -167,17 +205,32 @@ class MusicService : Service() {
         val idx = player.currentMediaItemIndex
         val currentTitle = if (idx in titles.indices) titles[idx] else "No song selected"
         val currentId = if (idx in titles.indices) player.getMediaItemAt(idx).mediaId else null
+        val duration = player.duration.takeIf { it > 0L } ?: 0L
 
         session.setMetadata(
             MediaMetadataCompat.Builder()
                 .putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, currentId)
                 .putString(MediaMetadataCompat.METADATA_KEY_TITLE, currentTitle)
+                .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration)
                 .build()
         )
     }
 
     // ✅ Needed so MediaButtonReceiver PendingIntents control your MediaSession
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_TOGGLE_SHUFFLE) {
+            val newMode = if (player.shuffleModeEnabled) {
+                PlaybackStateCompat.SHUFFLE_MODE_NONE
+            } else {
+                PlaybackStateCompat.SHUFFLE_MODE_ALL
+            }
+            player.shuffleModeEnabled = newMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
+            session.setShuffleMode(newMode)
+            setPlaybackState(player.isPlaying)
+            updateNotification(player.isPlaying)
+            return START_STICKY
+        }
+
         MediaButtonReceiver.handleIntent(session, intent)
         return START_STICKY
     }
@@ -186,6 +239,7 @@ class MusicService : Service() {
         session.isActive = false
         session.release()
         player.release()
+        positionHandler.removeCallbacks(positionUpdate)
         super.onDestroy()
     }
 
@@ -243,6 +297,7 @@ class MusicService : Service() {
                     PlaybackStateCompat.ACTION_PLAY_PAUSE or
                     PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
                     PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
+                    PlaybackStateCompat.ACTION_SEEK_TO or
                     PlaybackStateCompat.ACTION_SET_SHUFFLE_MODE or
                     PlaybackStateCompat.ACTION_STOP
 
@@ -252,7 +307,12 @@ class MusicService : Service() {
         session.setPlaybackState(
             PlaybackStateCompat.Builder()
                 .setActions(actions)
-                .setState(state, player.currentPosition, 1f)
+                .setState(
+                    state,
+                    player.currentPosition,
+                    if (isPlaying) 1f else 0f,
+                    SystemClock.elapsedRealtime()
+                )
                 .build()
         )
     }
@@ -270,9 +330,18 @@ class MusicService : Service() {
             MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_SKIP_TO_NEXT)
         val pendingIntentPrev =
             MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS)
+        val pendingIntentShuffle =
+            PendingIntent.getService(
+                this,
+                0,
+                Intent(this, MusicService::class.java).setAction(ACTION_TOGGLE_SHUFFLE),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
 
         val idx = player.currentMediaItemIndex
         val currentTitle = if (idx in titles.indices) titles[idx] else "No song selected"
+        val shuffleOn = player.shuffleModeEnabled
+        val shuffleLabel = if (shuffleOn) "Shuffle On" else "Shuffle Off"
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
@@ -284,9 +353,11 @@ class MusicService : Service() {
             .setContentText("")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOnlyAlertOnce(true)
             .addAction(android.R.drawable.ic_media_previous, "Previous", pendingIntentPrev)
             .addAction(playPauseIcon, if (isPlaying) "Pause" else "Play", pendingIntentPlayPause)
             .addAction(android.R.drawable.ic_media_next, "Next", pendingIntentNext)
+            .addAction(R.drawable.ic_shuffle, shuffleLabel, pendingIntentShuffle)
             .setStyle(
                 androidx.media.app.NotificationCompat.MediaStyle()
                     .setMediaSession(session.sessionToken)
@@ -295,8 +366,21 @@ class MusicService : Service() {
             .build()
     }
 
+    @SuppressLint("MissingPermission")
     private fun updateNotification(isPlaying: Boolean) {
+        if (!canPostNotifications()) return
         val nm = getSystemService(NotificationManager::class.java)
         nm.notify(NOTIFICATION_ID, buildNotification(isPlaying))
+    }
+
+    private fun canPostNotifications(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
     }
 }

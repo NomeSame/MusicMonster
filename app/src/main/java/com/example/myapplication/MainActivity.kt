@@ -14,9 +14,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
@@ -37,6 +42,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.core.app.ActivityCompat
 import android.support.v4.media.session.MediaControllerCompat
 import android.support.v4.media.MediaMetadataCompat
@@ -214,6 +225,8 @@ class MainActivity : ComponentActivity() {
         val currentId = nowPlayingId.value
         val playing = isPlaying.value
         val shuffled = isShuffled.value
+        var expanded by rememberSaveable { mutableStateOf(false) }
+        val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
 
         val backgroundBrush = Brush.verticalGradient(
             colors = listOf(
@@ -240,6 +253,157 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
 
+                Text(
+                    text = "Songs",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    if (songs.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "No songs found on this device",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(bottom = 16.dp)
+                        ) {
+                            itemsIndexed(songs) { index, song ->
+                                val isCurrent = song.id == currentId
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 10.dp)
+                                        .clickable {
+                                            mediaController.transportControls.playFromMediaId(
+                                                song.id,
+                                                null
+                                            )
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (isCurrent) {
+                                                    MaterialTheme.colorScheme.primary
+                                                } else {
+                                                    MaterialTheme.colorScheme.outlineVariant
+                                                }
+                                            )
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        text = song.title,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = if (isCurrent) {
+                                            MaterialTheme.colorScheme.onSurface
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                        fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (isCurrent) {
+                                        Text(
+                                            text = if (playing) "Playing" else "Paused",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(start = 8.dp)
+                                        )
+                                    }
+                                }
+
+                                if (index < songs.lastIndex) {
+                                    Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                                }
+                            }
+                        }
+                    }
+
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = expanded,
+                        enter = fadeIn() + slideInVertically { it / 3 },
+                        exit = fadeOut() + slideOutVertically { it / 3 }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    HorizontalPager(
+                                        state = pagerState,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f)
+                                    ) { page ->
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "Screen ${page + 1}",
+                                                style = MaterialTheme.typography.headlineSmall,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 12.dp, bottom = 4.dp),
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    repeat(3) { index ->
+                                        val isSelected = pagerState.currentPage == index
+                                        Box(
+                                            modifier = Modifier
+                                                .padding(horizontal = 6.dp)
+                                                .height(6.dp)
+                                                .width(if (isSelected) 26.dp else 12.dp)
+                                                .clip(RoundedCornerShape(999.dp))
+                                                .background(
+                                                    if (isSelected) {
+                                                        MaterialTheme.colorScheme.primary
+                                                    } else {
+                                                        MaterialTheme.colorScheme.outlineVariant
+                                                    }
+                                                )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.elevatedCardColors(
@@ -248,24 +412,44 @@ class MainActivity : ComponentActivity() {
                     elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = currentTitle,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = if (playing) "Playing" else "Paused",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
-                        )
-
-                        val shuffleTint = if (shuffled) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
-
                         Row(
                             modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = currentTitle,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = if (playing) "Playing" else "Paused",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+                            IconButton(onClick = { expanded = !expanded }) {
+                                Icon(
+                                    imageVector = if (expanded) {
+                                        Icons.Default.KeyboardArrowDown
+                                    } else {
+                                        Icons.Default.KeyboardArrowUp
+                                    },
+                                    contentDescription = "Expand"
+                                )
+                            }
+                        }
+
+                        val shuffleTint =
+                            if (shuffled) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp),
                             horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -314,88 +498,6 @@ class MainActivity : ComponentActivity() {
                                     tint = shuffleTint,
                                     contentDescription = "Shuffle"
                                 )
-                            }
-                        }
-                    }
-                }
-
-                Text(
-                    text = "Songs",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
-                )
-
-                if (songs.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "No songs found on this device",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(bottom = 16.dp)
-                    ) {
-                        itemsIndexed(songs) { index, song ->
-                            val isCurrent = song.id == currentId
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 10.dp)
-                                    .clickable {
-                                        mediaController.transportControls.playFromMediaId(
-                                            song.id,
-                                            null
-                                        )
-                                    },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(10.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            if (isCurrent) {
-                                                MaterialTheme.colorScheme.primary
-                                            } else {
-                                                MaterialTheme.colorScheme.outlineVariant
-                                            }
-                                        )
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text(
-                                    text = song.title,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = if (isCurrent) {
-                                        MaterialTheme.colorScheme.onSurface
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
-                                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
-                                    modifier = Modifier.weight(1f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                if (isCurrent) {
-                                    Text(
-                                        text = if (playing) "Playing" else "Paused",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(start = 8.dp)
-                                    )
-                                }
-                            }
-
-                            if (index < songs.lastIndex) {
-                                Divider(color = MaterialTheme.colorScheme.outlineVariant)
                             }
                         }
                     }
