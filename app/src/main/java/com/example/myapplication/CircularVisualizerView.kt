@@ -63,12 +63,19 @@ class CircularVisualizerView @JvmOverloads constructor(
                     ) {
                         if (fft == null) return
                         val bins = fft.size / 2
+                        var maxMag = 1f
                         for (i in 0 until barCount) {
-                            val index = (i * bins / barCount).coerceAtLeast(1)
+                            val index = (i * (bins - 1) / barCount).coerceAtLeast(1)
                             val re = fft[2 * index].toInt()
                             val im = fft[2 * index + 1].toInt()
                             val magnitude = sqrt((re * re + im * im).toDouble()).toFloat()
+                            if (magnitude > maxMag) maxMag = magnitude
                             magnitudes[i] = magnitude
+                        }
+                        val scale = 1f / maxMag
+                        for (i in 0 until barCount) {
+                            val target = (magnitudes[i] * scale).coerceIn(0f, 1f)
+                            magnitudes[i] = (magnitudes[i] * 0.6f) + (target * 0.4f)
                         }
                         postInvalidateOnAnimation()
                     }
@@ -117,12 +124,12 @@ class CircularVisualizerView @JvmOverloads constructor(
         val centerX = width / 2f
         val centerY = height / 2f
         val minDim = min(width, height)
-        val baseRadius = minDim * 0.28f
-        val maxLen = minDim * 0.18f
+        val baseRadius = minDim * 0.26f
+        val maxLen = minDim * 0.22f
 
         for (i in 0 until barCount) {
-            val angle = (i / barCount.toFloat()) * (Math.PI * 2.0)
-            val len = (magnitudes[i] / 128f).coerceIn(0f, 1f) * maxLen
+            val angle = (i / barCount.toFloat()) * (Math.PI * 2.0) - (Math.PI / 2.0)
+            val len = magnitudes[i].coerceIn(0f, 1f) * maxLen
             val startX = centerX + (baseRadius) * cos(angle).toFloat()
             val startY = centerY + (baseRadius) * sin(angle).toFloat()
             val endX = centerX + (baseRadius + len) * cos(angle).toFloat()

@@ -86,6 +86,9 @@ class MainActivity : ComponentActivity() {
     private val playbackPositionMs = mutableStateOf(0L)
     private val playbackDurationMs = mutableStateOf(0L)
     private val audioSessionId = mutableStateOf(0)
+    private val eqEnabled = mutableStateOf(true)
+    private val eqBandLevels = mutableStateListOf<Int>()
+    private val eqBandCount = mutableStateOf(0)
     private var controllerReady by mutableStateOf(false)
     private var serviceStarted = false
 
@@ -451,7 +454,11 @@ class MainActivity : ComponentActivity() {
                                                 audioSessionId = audioSessionId.value,
                                                 textWarm = textWarm,
                                                 textMuted = textMuted,
-                                                accent = iconGlow
+                                                accent = iconGlow,
+                                                eqEnabled = eqEnabled.value,
+                                                onEqEnabledChanged = { eqEnabled.value = it },
+                                                eqBandLevels = eqBandLevels,
+                                                eqBandCount = eqBandCount
                                             )
                                             1 -> VisualizerPanel(
                                                 audioSessionId = audioSessionId.value,
@@ -703,13 +710,16 @@ class MainActivity : ComponentActivity() {
         audioSessionId: Int,
         textWarm: Color,
         textMuted: Color,
-        accent: Color
+        accent: Color,
+        eqEnabled: Boolean,
+        onEqEnabledChanged: (Boolean) -> Unit,
+        eqBandLevels: MutableList<Int>,
+        eqBandCount: MutableState<Int>
     ) {
-        var enabled by rememberSaveable(audioSessionId) { mutableStateOf(true) }
         val equalizer = remember(audioSessionId) {
             if (audioSessionId != 0) {
                 try {
-                    Equalizer(0, audioSessionId).apply { this.enabled = true }
+                    Equalizer(0, audioSessionId).apply { this.enabled = eqEnabled }
                 } catch (_: Throwable) {
                     null
                 }
@@ -741,9 +751,9 @@ class MainActivity : ComponentActivity() {
                     color = textWarm
                 )
                 Switch(
-                    checked = enabled,
+                    checked = eqEnabled,
                     onCheckedChange = {
-                        enabled = it
+                        onEqEnabledChanged(it)
                         equalizer?.enabled = it
                     },
                     colors = SwitchDefaults.colors(
@@ -768,13 +778,24 @@ class MainActivity : ComponentActivity() {
             val range = equalizer.bandLevelRange
             val minLevel = range[0].toInt()
             val maxLevel = range[1].toInt()
+            if (eqBandCount.value != bandCount || eqBandLevels.size != bandCount) {
+                eqBandLevels.clear()
+                repeat(bandCount) { bandIndex ->
+                    val band = bandIndex.toShort()
+                    eqBandLevels.add(equalizer.getBandLevel(band).toInt())
+                }
+                eqBandCount.value = bandCount
+            } else {
+                for (bandIndex in 0 until bandCount) {
+                    val band = bandIndex.toShort()
+                    equalizer.setBandLevel(band, eqBandLevels[bandIndex].toShort())
+                }
+            }
 
             repeat(bandCount) { bandIndex ->
                 val band = bandIndex.toShort()
                 val centerHz = equalizer.getCenterFreq(band) / 1000
-                var level by remember(audioSessionId, bandIndex) {
-                    mutableStateOf(equalizer.getBandLevel(band).toInt())
-                }
+                val level = eqBandLevels[bandIndex]
 
                 Text(
                     text = "${centerHz} Hz",
@@ -786,8 +807,9 @@ class MainActivity : ComponentActivity() {
                     value = level.toFloat(),
                     valueRange = minLevel.toFloat()..maxLevel.toFloat(),
                     onValueChange = { newValue ->
-                        level = newValue.toInt()
-                        equalizer.setBandLevel(band, newValue.toInt().toShort())
+                        val newLevel = newValue.toInt()
+                        eqBandLevels[bandIndex] = newLevel
+                        equalizer.setBandLevel(band, newLevel.toShort())
                     },
                     colors = SliderDefaults.colors(
                         thumbColor = accent,
