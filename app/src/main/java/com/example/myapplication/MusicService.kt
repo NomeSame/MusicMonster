@@ -14,11 +14,17 @@ import android.provider.MediaStore
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ActivityCompat
 import androidx.media.session.MediaButtonReceiver
-import android.support.v4.media.session.PlaybackStateCompat
+
 import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.Player
+
+import android.os.Bundle
+import android.support.v4.media.MediaMetadataCompat
+
+
 
 class MusicService : Service() {
     private lateinit var player: ExoPlayer
@@ -30,6 +36,13 @@ class MusicService : Service() {
     companion object {
         const val CHANNEL_ID = "musicbox_channel"
         const val NOTIFICATION_ID = 1
+        /**
+         * Holds the session token once the service has created its MediaSession.
+         * Activities can read this to construct a {@link MediaControllerCompat}.
+         */
+        @Volatile
+        var sessionToken: MediaSessionCompat.Token? = null
+
     }
 
     override fun onCreate() {
@@ -53,6 +66,7 @@ class MusicService : Service() {
         val (items, itemTitles) = loadDevicePlaylist()
         titles = itemTitles
 
+
         if (items.isNotEmpty()) {
             player.setMediaItems(items)
             player.prepare()
@@ -65,6 +79,22 @@ class MusicService : Service() {
                         MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
             )
             setCallback(object : MediaSessionCompat.Callback() {
+                override fun onPlayFromMediaId(mediaId: String?, extras: Bundle?) {
+                    if (mediaId == null) return
+
+                    val targetIndex = (0 until player.mediaItemCount)
+                        .firstOrNull { player.getMediaItemAt(it).mediaId == mediaId }
+                        ?: return
+
+                    player.seekTo(targetIndex, 0L)
+                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                    player.play()
+
+                    setPlaybackState(true)
+                    updateSessionMetadata()
+                    updateNotification(true)
+                }
+
                 override fun onPlay() {
                     player.play()
                     setPlaybackState(true)
@@ -101,6 +131,9 @@ class MusicService : Service() {
                 }
             })
         }
+        sessionToken = session.sessionToken
+        updateSessionMetadata()
+
 
         // Keep notification in sync if user changes track / state
         player.addListener(object : Player.Listener {
@@ -110,12 +143,23 @@ class MusicService : Service() {
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                updateSessionMetadata()
                 updateNotification(player.isPlaying)
             }
         })
 
         setPlaybackState(false)
         startForeground(NOTIFICATION_ID, buildNotification(false))
+    }
+    private fun updateSessionMetadata() {
+        val idx = player.currentMediaItemIndex
+        val currentTitle = if (idx in titles.indices) titles[idx] else "No song selected"
+
+        session.setMetadata(
+            MediaMetadataCompat.Builder()
+                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, currentTitle)
+                .build()
+        )
     }
 
     // ✅ Needed so MediaButtonReceiver PendingIntents control your MediaSession
@@ -133,6 +177,8 @@ class MusicService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    // Returns a pair of MediaItems and their titles.  The MediaItem is built with a mediaId that matches the
+    // Song.id used by the activity.
     private fun loadDevicePlaylist(): Pair<List<MediaItem>, List<String>> {
         val permission =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
@@ -163,10 +209,12 @@ class MusicService : Service() {
                 val id = cursor.getLong(idCol)
                 val title = cursor.getString(titleCol) ?: "Unknown"
 
-                // ✅ content:// URI for this audio row
+                // Build MediaItem with mediaId so the activity can play by ID.
                 val contentUri = ContentUris.withAppendedId(collection, id)
-
-                items.add(MediaItem.fromUri(contentUri))
+                items.add(MediaItem.Builder()
+                    .setMediaId(id.toString())
+                    .setUri(contentUri)
+                    .build())
                 titles.add(title)
             }
         }

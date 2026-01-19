@@ -27,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,10 +35,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
+import android.support.v4.media.session.MediaControllerCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
+
+import android.os.Handler
+import android.os.Looper
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
+import android.content.ContentUris
+
 
 /**
  * Main activity that displays a list of audio files from the device and provides playback controls.
@@ -46,6 +54,15 @@ class MainActivity : ComponentActivity() {
 
     // ✅ Make songs observable by Compose
     private var songs by mutableStateOf<List<Song>>(emptyList())
+
+    // MediaController for interacting with the foreground service.
+    private lateinit var mediaController: MediaControllerCompat
+
+    // Compose state that reflects current playback status and title.
+    private val nowPlayingTitle = mutableStateOf<String?>(null)
+    private val isPlaying = mutableStateOf(false)
+    private var controllerReady by mutableStateOf(false)
+
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -66,7 +83,17 @@ class MainActivity : ComponentActivity() {
             startService(intent)
         }
 
-        setContent { MainScreen() }
+        setContent {
+            if (controllerReady) {
+                MainScreen()
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            }
+        }
+        // Initialize the MediaController once the service has created its session.
+        initMediaController()
     }
 
     override fun onResume() {
@@ -82,7 +109,11 @@ class MainActivity : ComponentActivity() {
             else
                 Manifest.permission.READ_EXTERNAL_STORAGE
 
-        if (ActivityCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                permission
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
             requestPermissionLauncher.launch(permission)
         } else {
             if (songs.isEmpty()) loadSongs()
@@ -90,69 +121,89 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadSongs() {
-        val context = this
-        val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+        val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
-            MediaStore.Audio.Media.TITLE,
-            MediaStore.Audio.Media.DATA
+            MediaStore.Audio.Media.TITLE
         )
 
-        val cursor = context.contentResolver.query(uri, projection, null, null, null)
         val list = mutableListOf<Song>()
 
-        cursor?.use {
-            while (it.moveToNext()) {
-                val title =
-                    it.getString(it.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)) ?: "Unknown"
-                val dataPath = it.getString(it.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA))
-                if (dataPath != null) {
-                    list.add(Song(title, Uri.fromFile(java.io.File(dataPath))))
-                }
+        contentResolver.query(collection, projection, null, null, null)?.use { c ->
+            val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+            val titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+
+            while (c.moveToNext()) {
+                val idLong = c.getLong(idCol)
+                val title = c.getString(titleCol) ?: "Unknown"
+
+                val contentUri = ContentUris.withAppendedId(collection, idLong)
+
+                list.add(
+                    Song(
+                        id = idLong.toString(),
+                        title = title,
+                        uri = contentUri
+                    )
+                )
             }
         }
 
         songs = list
     }
 
+    /**
+     * Sets up a {@link MediaControllerCompat} to communicate with the foreground
+     * music service. The controller is only created once the service has exposed its
+     * session token.
+     */
+    private fun initMediaController() {
+        // Use a Handler to poll for the session token until it becomes available.
+        val handler = Handler(Looper.getMainLooper())
+
+        val checkToken = object : Runnable {
+            override fun run() {
+                val token = MusicService.sessionToken
+                if (token != null) {
+                    mediaController = MediaControllerCompat(this@MainActivity, token)
+
+                    mediaController.registerCallback(object : MediaControllerCompat.Callback() {
+                        override fun onPlaybackStateChanged(state: PlaybackStateCompat?) {
+                            isPlaying.value = state?.state == PlaybackStateCompat.STATE_PLAYING
+                        }
+
+                        override fun onMetadataChanged(metadata: MediaMetadataCompat?) {
+                            nowPlayingTitle.value =
+                                metadata?.getString(MediaMetadataCompat.METADATA_KEY_TITLE)
+                        }
+                    })
+
+                    controllerReady = true // ✅ put this here (triggers recomposition)
+                } else {
+                    handler.postDelayed(this, 500)
+                }
+            }
+        }
+        handler.post(checkToken)
+
+    }
+
     @Composable
     fun MainScreen() {
         val context = LocalContext.current
 
-        val player = remember { ExoPlayer.Builder(context).build() }
-        val session = remember {
-            MediaSessionCompat(context, "MusicBox").apply { isActive = true }
-        }
 
         var currentIndex by remember { mutableStateOf(-1) }
         var isPlaying by remember { mutableStateOf(false) }
         var isShuffled by remember { mutableStateOf(false) }
 
-        // Update player when song changes
-        LaunchedEffect(currentIndex) {
-            if (currentIndex in songs.indices) {
-                val mediaItem = MediaItem.fromUri(songs[currentIndex].uri)
-                player.setMediaItem(mediaItem)
-                player.prepare()
 
-                // ✅ Use compat metadata (matches MediaSessionCompat)
-                val metadata = MediaMetadataCompat.Builder()
-                    .putString(MediaMetadataCompat.METADATA_KEY_TITLE, songs[currentIndex].title)
-                    .build()
-                session.setMetadata(metadata)
-
-                if (isPlaying) player.play()
-            }
-        }
 
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             Column(modifier = Modifier.padding(innerPadding)) {
 
                 Text(
-                    text = if (currentIndex in songs.indices)
-                        "Now Playing: ${songs[currentIndex].title}"
-                    else
-                        "No song selected",
+                    text = nowPlayingTitle.value?.let { "Now Playing: $it" } ?: "No song selected",
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
@@ -174,8 +225,10 @@ class MainActivity : ComponentActivity() {
                                 .padding(8.dp)
                                 .clickable {
                                     currentIndex = index
-                                    isPlaying = true
-                                    player.play()
+                                    mediaController.transportControls.playFromMediaId(
+                                        songs[index].id,
+                                        null
+                                    )
                                 }
                         ) {
                             Text(text = song.title, modifier = Modifier.weight(1f))
@@ -207,13 +260,12 @@ class MainActivity : ComponentActivity() {
                     }
 
                     Button(onClick = {
-                        if (isPlaying) {
-                            player.pause()
-                            isPlaying = false
+                        if (this@MainActivity.isPlaying.value) {
+                            mediaController.transportControls.pause()
                         } else {
-                            player.play()
-                            isPlaying = true
+                            mediaController.transportControls.play()
                         }
+
                     }) {
                         Icon(
                             if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -245,14 +297,6 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
-            }
-        }
-
-        // Release resources when composable leaves composition
-        DisposableEffect(Unit) {
-            onDispose {
-                player.release()
-                session.release()
             }
         }
     }
