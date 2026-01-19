@@ -34,7 +34,7 @@ class MusicService : Service() {
     private var titles: List<String> = emptyList()
 
     companion object {
-        const val CHANNEL_ID = "musicbox_channel"
+        const val CHANNEL_ID = "monsterplayer_channel"
         const val NOTIFICATION_ID = 1
         /**
          * Holds the session token once the service has created its MediaSession.
@@ -52,10 +52,10 @@ class MusicService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "MusicBox",
+                "MonsterPlayer",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Controls for MusicBox playback"
+                description = "Controls for MonsterPlayer playback"
             }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
@@ -72,7 +72,7 @@ class MusicService : Service() {
             player.prepare()
         }
 
-        session = MediaSessionCompat(this, "MusicBoxService").apply {
+        session = MediaSessionCompat(this, "MonsterPlayerService").apply {
             isActive = true
             setFlags(
                 MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
@@ -96,8 +96,10 @@ class MusicService : Service() {
                 }
 
                 override fun onPlay() {
+                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
                     player.play()
                     setPlaybackState(true)
+                    updateSessionMetadata()
                     updateNotification(true)
                 }
 
@@ -112,6 +114,7 @@ class MusicService : Service() {
                     if (player.playbackState == Player.STATE_IDLE) player.prepare()
                     if (!player.isPlaying) player.play()
                     setPlaybackState(true)
+                    updateSessionMetadata()
                     updateNotification(true)
                 }
 
@@ -120,7 +123,15 @@ class MusicService : Service() {
                     if (player.playbackState == Player.STATE_IDLE) player.prepare()
                     if (!player.isPlaying) player.play()
                     setPlaybackState(true)
+                    updateSessionMetadata()
                     updateNotification(true)
+                }
+
+                override fun onSetShuffleMode(shuffleMode: Int) {
+                    val enabled = shuffleMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
+                    player.shuffleModeEnabled = enabled
+                    session.setShuffleMode(shuffleMode)
+                    updateNotification(player.isPlaying)
                 }
 
                 override fun onStop() {
@@ -132,6 +143,7 @@ class MusicService : Service() {
             })
         }
         sessionToken = session.sessionToken
+        session.setShuffleMode(PlaybackStateCompat.SHUFFLE_MODE_NONE)
         updateSessionMetadata()
 
 
@@ -154,9 +166,11 @@ class MusicService : Service() {
     private fun updateSessionMetadata() {
         val idx = player.currentMediaItemIndex
         val currentTitle = if (idx in titles.indices) titles[idx] else "No song selected"
+        val currentId = if (idx in titles.indices) player.getMediaItemAt(idx).mediaId else null
 
         session.setMetadata(
             MediaMetadataCompat.Builder()
+                .putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, currentId)
                 .putString(MediaMetadataCompat.METADATA_KEY_TITLE, currentTitle)
                 .build()
         )
@@ -229,6 +243,7 @@ class MusicService : Service() {
                     PlaybackStateCompat.ACTION_PLAY_PAUSE or
                     PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
                     PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
+                    PlaybackStateCompat.ACTION_SET_SHUFFLE_MODE or
                     PlaybackStateCompat.ACTION_STOP
 
         val state =

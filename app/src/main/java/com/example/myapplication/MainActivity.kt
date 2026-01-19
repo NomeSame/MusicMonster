@@ -3,7 +3,6 @@ package com.example.myapplication
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
@@ -15,36 +14,40 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.Divider
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import android.support.v4.media.session.MediaControllerCompat
 import android.support.v4.media.MediaMetadataCompat
-import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 
 import android.os.Handler
 import android.os.Looper
-import com.google.android.exoplayer2.ExoPlayer
-import com.google.android.exoplayer2.MediaItem
 import android.content.ContentUris
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.Brush
+import com.example.myapplication.ui.theme.MyApplicationTheme
 
 
 /**
@@ -60,7 +63,9 @@ class MainActivity : ComponentActivity() {
 
     // Compose state that reflects current playback status and title.
     private val nowPlayingTitle = mutableStateOf<String?>(null)
+    private val nowPlayingId = mutableStateOf<String?>(null)
     private val isPlaying = mutableStateOf(false)
+    private val isShuffled = mutableStateOf(false)
     private var controllerReady by mutableStateOf(false)
 
 
@@ -84,11 +89,13 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            if (controllerReady) {
-                MainScreen()
-            } else {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+            MyApplicationTheme {
+                if (controllerReady) {
+                    MainScreen()
+                } else {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
                 }
             }
         }
@@ -126,10 +133,12 @@ class MainActivity : ComponentActivity() {
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.TITLE
         )
+        val selection = "${MediaStore.Audio.Media.IS_MUSIC}!=0"
+        val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
 
         val list = mutableListOf<Song>()
 
-        contentResolver.query(collection, projection, null, null, null)?.use { c ->
+        contentResolver.query(collection, projection, selection, null, sortOrder)?.use { c ->
             val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
             val titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
 
@@ -168,16 +177,27 @@ class MainActivity : ComponentActivity() {
                     mediaController = MediaControllerCompat(this@MainActivity, token)
 
                     mediaController.registerCallback(object : MediaControllerCompat.Callback() {
-                        override fun onPlaybackStateChanged(state: PlaybackStateCompat?) {
-                            isPlaying.value = state?.state == PlaybackStateCompat.STATE_PLAYING
-                        }
+                    override fun onPlaybackStateChanged(state: PlaybackStateCompat?) {
+                        isPlaying.value = state?.state == PlaybackStateCompat.STATE_PLAYING
+                    }
 
-                        override fun onMetadataChanged(metadata: MediaMetadataCompat?) {
-                            nowPlayingTitle.value =
-                                metadata?.getString(MediaMetadataCompat.METADATA_KEY_TITLE)
-                        }
+                    override fun onMetadataChanged(metadata: MediaMetadataCompat?) {
+                        nowPlayingTitle.value =
+                            metadata?.getString(MediaMetadataCompat.METADATA_KEY_TITLE)
+                        nowPlayingId.value =
+                            metadata?.getString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID)
+                    }
+
+                    override fun onShuffleModeChanged(shuffleMode: Int) {
+                        isShuffled.value = shuffleMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
+                    }
                     })
 
+                    isShuffled.value = mediaController.shuffleMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
+                    nowPlayingTitle.value = mediaController.metadata
+                        ?.getString(MediaMetadataCompat.METADATA_KEY_TITLE)
+                    nowPlayingId.value = mediaController.metadata
+                        ?.getString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID)
                     controllerReady = true // ✅ put this here (triggers recomposition)
                 } else {
                     handler.postDelayed(this, 500)
@@ -190,111 +210,194 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun MainScreen() {
-        val context = LocalContext.current
+        val currentTitle = nowPlayingTitle.value ?: "No song selected"
+        val currentId = nowPlayingId.value
+        val playing = isPlaying.value
+        val shuffled = isShuffled.value
 
+        val backgroundBrush = Brush.verticalGradient(
+            colors = listOf(
+                MaterialTheme.colorScheme.background,
+                MaterialTheme.colorScheme.surfaceVariant
+            )
+        )
 
-        var currentIndex by remember { mutableStateOf(-1) }
-        var isPlaying by remember { mutableStateOf(false) }
-        var isShuffled by remember { mutableStateOf(false) }
-
-
-
-        Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-            Column(modifier = Modifier.padding(innerPadding)) {
-
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = Color.Transparent
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(backgroundBrush)
+                    .padding(innerPadding)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
                 Text(
-                    text = nowPlayingTitle.value?.let { "Now Playing: $it" } ?: "No song selected",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .padding(8.dp)
-                        .background(
-                            MaterialTheme.colorScheme.secondaryContainer,
-                            shape = RoundedCornerShape(4.dp)
-                        )
-                        .padding(8.dp)
+                    text = "MonsterPlayer",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(bottom = 12.dp)
                 )
 
-                LazyColumn(
-                    modifier = Modifier.weight(1f)
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
                 ) {
-                    itemsIndexed(songs) { index, song ->
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = currentTitle,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = if (playing) "Playing" else "Paused",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
+                        )
+
+                        val shuffleTint = if (shuffled) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
+
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(8.dp)
-                                .clickable {
-                                    currentIndex = index
-                                    mediaController.transportControls.playFromMediaId(
-                                        songs[index].id,
-                                        null
-                                    )
-                                }
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(text = song.title, modifier = Modifier.weight(1f))
+                            IconButton(onClick = {
+                                mediaController.transportControls.skipToPrevious()
+                            }) {
+                                Icon(Icons.Default.SkipPrevious, contentDescription = "Previous")
+                            }
+
+                            IconButton(onClick = {
+                                if (playing) {
+                                    mediaController.transportControls.pause()
+                                } else {
+                                    if (currentId == null && songs.isNotEmpty()) {
+                                        mediaController.transportControls.playFromMediaId(
+                                            songs.first().id,
+                                            null
+                                        )
+                                    } else {
+                                        mediaController.transportControls.play()
+                                    }
+                                }
+                            }) {
+                                Icon(
+                                    if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = "Play/Pause"
+                                )
+                            }
+
+                            IconButton(onClick = {
+                                mediaController.transportControls.skipToNext()
+                            }) {
+                                Icon(Icons.Default.SkipNext, contentDescription = "Next")
+                            }
+
+                            IconButton(onClick = {
+                                val newMode = if (shuffled) {
+                                    PlaybackStateCompat.SHUFFLE_MODE_NONE
+                                } else {
+                                    PlaybackStateCompat.SHUFFLE_MODE_ALL
+                                }
+                                mediaController.transportControls.setShuffleMode(newMode)
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.Shuffle,
+                                    tint = shuffleTint,
+                                    contentDescription = "Shuffle"
+                                )
+                            }
                         }
                     }
                 }
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Button(onClick = {
-                        if (isShuffled) {
-                            if (songs.isNotEmpty()) {
-                                currentIndex = (0 until songs.size).random()
-                                isPlaying = true
-                            }
-                        } else {
-                            if (currentIndex > 0) {
-                                currentIndex--
-                                isPlaying = true
-                            }
-                        }
-                    }) {
-                        Icon(Icons.Default.SkipPrevious, contentDescription = "Prev")
-                    }
+                Text(
+                    text = "Songs",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+                )
 
-                    Button(onClick = {
-                        if (this@MainActivity.isPlaying.value) {
-                            mediaController.transportControls.pause()
-                        } else {
-                            mediaController.transportControls.play()
-                        }
-
-                    }) {
-                        Icon(
-                            if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = "Play/Pause"
+                if (songs.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No songs found on this device",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-
-                    Button(onClick = {
-                        if (isShuffled) {
-                            if (songs.isNotEmpty()) {
-                                currentIndex = (0 until songs.size).random()
-                                isPlaying = true
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(bottom = 16.dp)
+                    ) {
+                        itemsIndexed(songs) { index, song ->
+                            val isCurrent = song.id == currentId
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 10.dp)
+                                    .clickable {
+                                        mediaController.transportControls.playFromMediaId(
+                                            song.id,
+                                            null
+                                        )
+                                    },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (isCurrent) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.outlineVariant
+                                            }
+                                        )
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = song.title,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = if (isCurrent) {
+                                        MaterialTheme.colorScheme.onSurface
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (isCurrent) {
+                                    Text(
+                                        text = if (playing) "Playing" else "Paused",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(start = 8.dp)
+                                    )
+                                }
                             }
-                        } else {
-                            if (currentIndex < songs.size - 1) {
-                                currentIndex++
-                                isPlaying = true
+
+                            if (index < songs.lastIndex) {
+                                Divider(color = MaterialTheme.colorScheme.outlineVariant)
                             }
                         }
-                    }) {
-                        Icon(Icons.Default.SkipNext, contentDescription = "Next")
-                    }
-
-                    Button(onClick = { isShuffled = !isShuffled }) {
-                        Icon(
-                            imageVector = Icons.Default.Shuffle,
-                            tint = if (isShuffled) Color.Green else Color.Unspecified,
-                            contentDescription = "Shuffle"
-                        )
                     }
                 }
             }
