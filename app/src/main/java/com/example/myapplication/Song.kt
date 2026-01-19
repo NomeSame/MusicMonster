@@ -19,6 +19,10 @@ data class Song(
      * The content URI pointing to the audio file.  It is not used directly by the service but kept for
      * reference if needed.
      */
-    val uri: Uri
+    val uri: Uri,
+    /**
+     * Track duration in milliseconds, as reported by MediaStore.
+     */
+    val durationMs: Long
 )
 

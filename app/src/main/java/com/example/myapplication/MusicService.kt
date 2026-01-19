@@ -69,10 +69,10 @@ class MusicService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "MonsterPlayer",
+                "Music Monster",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Controls for MonsterPlayer playback"
+                description = "Controls for Music Monster playback"
             }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
@@ -168,6 +168,7 @@ class MusicService : Service() {
             })
         }
         sessionToken = session.sessionToken
+        updateSessionExtras()
         session.setShuffleMode(PlaybackStateCompat.SHUFFLE_MODE_NONE)
         updateSessionMetadata()
 
@@ -188,6 +189,7 @@ class MusicService : Service() {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY) {
                     updateSessionMetadata()
+                    updateSessionExtras()
                     setPlaybackState(player.isPlaying)
                     updateNotification(player.isPlaying)
                 }
@@ -197,6 +199,10 @@ class MusicService : Service() {
                 updateSessionMetadata()
                 setPlaybackState(player.isPlaying)
                 updateNotification(player.isPlaying)
+            }
+
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                updateSessionExtras()
             }
         })
 
@@ -216,6 +222,15 @@ class MusicService : Service() {
                 .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration)
                 .build()
         )
+    }
+
+    private fun updateSessionExtras() {
+        val sessionId = player.audioSessionId
+        if (sessionId != 0) {
+            session.setExtras(Bundle().apply {
+                putInt("audio_session_id", sessionId)
+            })
+        }
     }
 
     // ✅ Needed so MediaButtonReceiver PendingIntents control your MediaSession
@@ -358,12 +373,12 @@ class MusicService : Service() {
             .setContentTitle(currentTitle)
             .setContentText("")
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
             .setOngoing(isPlaying)
-            .setColor(Color.parseColor("#69D3C3"))
-            .setColorized(true)
+            .setColor(Color.parseColor("#E58B3C"))
+            .setColorized(false)
             .addAction(android.R.drawable.ic_media_previous, "Previous", pendingIntentPrev)
             .addAction(playPauseIcon, if (isPlaying) "Pause" else "Play", pendingIntentPlayPause)
             .addAction(android.R.drawable.ic_media_next, "Next", pendingIntentNext)

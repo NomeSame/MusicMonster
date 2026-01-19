@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
@@ -22,6 +23,7 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
@@ -32,9 +34,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.Divider
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,13 +48,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.core.app.ActivityCompat
+import android.media.audiofx.Equalizer
 import android.support.v4.media.session.MediaControllerCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.PlaybackStateCompat
@@ -57,7 +62,6 @@ import android.support.v4.media.session.PlaybackStateCompat
 import android.os.Handler
 import android.os.Looper
 import android.content.ContentUris
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.Brush
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.delay
@@ -81,6 +85,7 @@ class MainActivity : ComponentActivity() {
     private val isShuffled = mutableStateOf(false)
     private val playbackPositionMs = mutableStateOf(0L)
     private val playbackDurationMs = mutableStateOf(0L)
+    private val audioSessionId = mutableStateOf(0)
     private var controllerReady by mutableStateOf(false)
     private var serviceStarted = false
 
@@ -98,6 +103,10 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { }
 
+    private val requestRecordAudioPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+
     private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         val granted = ActivityCompat.checkSelfPermission(
@@ -109,11 +118,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun requestRecordAudioPermissionIfNeeded() {
+        val granted = ActivityCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            requestRecordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         requestAudioPermissionAndLoad()
         requestNotificationPermissionIfNeeded()
+        requestRecordAudioPermissionIfNeeded()
 
         setContent {
             MyApplicationTheme {
@@ -176,7 +196,8 @@ class MainActivity : ComponentActivity() {
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
-            MediaStore.Audio.Media.TITLE
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.DURATION
         )
         val selection = "${MediaStore.Audio.Media.IS_MUSIC}!=0"
         val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
@@ -186,10 +207,12 @@ class MainActivity : ComponentActivity() {
         contentResolver.query(collection, projection, selection, null, sortOrder)?.use { c ->
             val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
             val titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+            val durationCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
 
             while (c.moveToNext()) {
                 val idLong = c.getLong(idCol)
                 val title = c.getString(titleCol) ?: "Unknown"
+                val durationMs = c.getLong(durationCol)
 
                 val contentUri = ContentUris.withAppendedId(collection, idLong)
 
@@ -197,7 +220,8 @@ class MainActivity : ComponentActivity() {
                     Song(
                         id = idLong.toString(),
                         title = title,
-                        uri = contentUri
+                        uri = contentUri,
+                        durationMs = durationMs
                     )
                 )
             }
@@ -239,6 +263,11 @@ class MainActivity : ComponentActivity() {
                         override fun onShuffleModeChanged(shuffleMode: Int) {
                             isShuffled.value = shuffleMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
                         }
+
+                        override fun onExtrasChanged(extras: Bundle?) {
+                            val id = extras?.getInt("audio_session_id") ?: 0
+                            if (id != 0) audioSessionId.value = id
+                        }
                     })
 
                     isShuffled.value = mediaController.shuffleMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
@@ -249,6 +278,7 @@ class MainActivity : ComponentActivity() {
                     playbackDurationMs.value = mediaController.metadata
                         ?.getLong(MediaMetadataCompat.METADATA_KEY_DURATION) ?: 0L
                     playbackPositionMs.value = mediaController.playbackState?.position ?: 0L
+                    audioSessionId.value = mediaController.extras?.getInt("audio_session_id") ?: 0
                     controllerReady = true // ✅ put this here (triggers recomposition)
                 } else {
                     handler.postDelayed(this, 500)
@@ -282,10 +312,18 @@ class MainActivity : ComponentActivity() {
 
         val backgroundBrush = Brush.verticalGradient(
             colors = listOf(
-                MaterialTheme.colorScheme.background,
-                MaterialTheme.colorScheme.surfaceVariant
+                Color(0xFF120C09),
+                Color(0xFF1B120E),
+                Color(0xFF2A1B13)
             )
         )
+        val panelColor = Color(0xFF2A1A14)
+        val panelBorder = Color(0xFF4B2C1F)
+        val panelGlow = Color(0xFFB86A2C)
+        val textWarm = Color(0xFFE6C7A1)
+        val textMuted = Color(0xFFB08A63)
+        val iconGlow = Color(0xFFFFB14A)
+        val dividerWarm = Color(0xFF3C2419)
 
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -299,18 +337,24 @@ class MainActivity : ComponentActivity() {
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 Text(
-                    text = "MonsterPlayer",
+                    text = "Music Monster",
                     style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color = textWarm,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
 
-                Text(
-                    text = "Songs",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Music",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = textWarm
+                    )
+                }
 
                 Box(
                     modifier = Modifier
@@ -326,7 +370,7 @@ class MainActivity : ComponentActivity() {
                             Text(
                                 text = "No songs found on this device",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = textMuted
                             )
                         }
                     } else {
@@ -339,7 +383,7 @@ class MainActivity : ComponentActivity() {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 10.dp)
+                                        .padding(vertical = 12.dp)
                                         .clickable {
                                             mediaController.transportControls.playFromMediaId(
                                                 song.id,
@@ -348,44 +392,32 @@ class MainActivity : ComponentActivity() {
                                         },
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(10.dp)
-                                            .clip(CircleShape)
-                                            .background(
-                                                if (isCurrent) {
-                                                    MaterialTheme.colorScheme.primary
-                                                } else {
-                                                    MaterialTheme.colorScheme.outlineVariant
-                                                }
-                                            )
+                                    Icon(
+                                        imageVector = Icons.Default.MusicNote,
+                                        contentDescription = null,
+                                        tint = if (isCurrent) iconGlow else textMuted,
+                                        modifier = Modifier.size(20.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Spacer(modifier = Modifier.width(10.dp))
                                     Text(
                                         text = song.title,
                                         style = MaterialTheme.typography.bodyLarge,
-                                        color = if (isCurrent) {
-                                            MaterialTheme.colorScheme.onSurface
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
+                                        color = if (isCurrent) textWarm else textMuted,
                                         fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                                         modifier = Modifier.weight(1f),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    if (isCurrent) {
-                                        Text(
-                                            text = if (playing) "Playing" else "Paused",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.padding(start = 8.dp)
-                                        )
-                                    }
+                                    Text(
+                                        text = formatTime(song.durationMs),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = if (isCurrent) iconGlow else textMuted,
+                                        modifier = Modifier.padding(start = 8.dp)
+                                    )
                                 }
 
                                 if (index < songs.lastIndex) {
-                                    Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                                    Divider(color = dividerWarm)
                                 }
                             }
                         }
@@ -399,7 +431,7 @@ class MainActivity : ComponentActivity() {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
+                                .background(Color(0xFF1B110C).copy(alpha = 0.95f))
                         ) {
                             Column(
                                 modifier = Modifier
@@ -414,15 +446,28 @@ class MainActivity : ComponentActivity() {
                                             .fillMaxWidth()
                                             .weight(1f)
                                     ) { page ->
-                                        Box(
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = "Screen ${page + 1}",
-                                                style = MaterialTheme.typography.headlineSmall,
-                                                color = MaterialTheme.colorScheme.onSurface
+                                        when (page) {
+                                            0 -> EqualizerPanel(
+                                                audioSessionId = audioSessionId.value,
+                                                textWarm = textWarm,
+                                                textMuted = textMuted,
+                                                accent = iconGlow
                                             )
+                                            1 -> VisualizerPanel(
+                                                audioSessionId = audioSessionId.value,
+                                                textWarm = textWarm,
+                                                accent = iconGlow
+                                            )
+                                            else -> Box(
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = "Screen ${page + 1}",
+                                                    style = MaterialTheme.typography.headlineSmall,
+                                                    color = textWarm
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -443,9 +488,9 @@ class MainActivity : ComponentActivity() {
                                                 .clip(RoundedCornerShape(999.dp))
                                                 .background(
                                                     if (isSelected) {
-                                                        MaterialTheme.colorScheme.primary
+                                                        iconGlow
                                                     } else {
-                                                        MaterialTheme.colorScheme.outlineVariant
+                                                        dividerWarm
                                                     }
                                                 )
                                         )
@@ -459,11 +504,16 @@ class MainActivity : ComponentActivity() {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.elevatedCardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
+                        containerColor = panelColor
                     ),
-                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
+                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .border(1.dp, panelBorder, RoundedCornerShape(14.dp))
+                            .padding(12.dp)
+                    ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
@@ -472,14 +522,14 @@ class MainActivity : ComponentActivity() {
                                 Text(
                                     text = currentTitle,
                                     style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
+                                    color = textWarm,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = if (playing) "Playing" else "Paused",
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = textMuted,
                                     modifier = Modifier.padding(top = 2.dp)
                                 )
                             }
@@ -490,7 +540,8 @@ class MainActivity : ComponentActivity() {
                                     } else {
                                         Icons.Default.KeyboardArrowUp
                                     },
-                                    contentDescription = "Expand"
+                                    contentDescription = "Expand",
+                                    tint = iconGlow
                                 )
                             }
                         }
@@ -507,6 +558,11 @@ class MainActivity : ComponentActivity() {
                                     mediaController.transportControls.seekTo(scrubPositionMs)
                                     isScrubbing = false
                                 },
+                                colors = SliderDefaults.colors(
+                                    thumbColor = iconGlow,
+                                    activeTrackColor = iconGlow,
+                                    inactiveTrackColor = panelBorder
+                                ),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(top = 8.dp)
@@ -520,18 +576,18 @@ class MainActivity : ComponentActivity() {
                                 Text(
                                     text = formatTime(effectivePosition),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color.Black
+                                    color = textWarm
                                 )
                                 Text(
                                     text = formatTime(durationMs),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color.Black
+                                    color = textWarm
                                 )
                             }
                         }
 
                         val shuffleTint =
-                            if (shuffled) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
+                            if (shuffled) panelGlow else textMuted
 
                         Row(
                             modifier = Modifier
@@ -543,7 +599,11 @@ class MainActivity : ComponentActivity() {
                             IconButton(onClick = {
                                 mediaController.transportControls.skipToPrevious()
                             }) {
-                                Icon(Icons.Default.SkipPrevious, contentDescription = "Previous")
+                                Icon(
+                                    Icons.Default.SkipPrevious,
+                                    contentDescription = "Previous",
+                                    tint = iconGlow
+                                )
                             }
 
                             IconButton(onClick = {
@@ -562,14 +622,19 @@ class MainActivity : ComponentActivity() {
                             }) {
                                 Icon(
                                     if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = "Play/Pause"
+                                    contentDescription = "Play/Pause",
+                                    tint = iconGlow
                                 )
                             }
 
                             IconButton(onClick = {
                                 mediaController.transportControls.skipToNext()
                             }) {
-                                Icon(Icons.Default.SkipNext, contentDescription = "Next")
+                                Icon(
+                                    Icons.Default.SkipNext,
+                                    contentDescription = "Next",
+                                    tint = iconGlow
+                                )
                             }
 
                             IconButton(onClick = {
@@ -598,5 +663,139 @@ class MainActivity : ComponentActivity() {
         val minutes = totalSeconds / 60
         val seconds = totalSeconds % 60
         return String.format("%d:%02d", minutes, seconds)
+    }
+
+    @Composable
+    private fun VisualizerPanel(
+        audioSessionId: Int,
+        textWarm: Color,
+        accent: Color
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Visualizer",
+                style = MaterialTheme.typography.titleMedium,
+                color = textWarm,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            androidx.compose.ui.viewinterop.AndroidView(
+                factory = { context ->
+                    CircularVisualizerView(context).apply {
+                        setVisualizerColor(accent)
+                    }
+                },
+                update = { view ->
+                    view.setAudioSessionId(audioSessionId)
+                },
+                modifier = Modifier
+                    .size(220.dp)
+                    .padding(12.dp)
+            )
+        }
+    }
+
+    @Composable
+    private fun EqualizerPanel(
+        audioSessionId: Int,
+        textWarm: Color,
+        textMuted: Color,
+        accent: Color
+    ) {
+        var enabled by rememberSaveable(audioSessionId) { mutableStateOf(true) }
+        val equalizer = remember(audioSessionId) {
+            if (audioSessionId != 0) {
+                try {
+                    Equalizer(0, audioSessionId).apply { this.enabled = true }
+                } catch (_: Throwable) {
+                    null
+                }
+            } else {
+                null
+            }
+        }
+
+        DisposableEffect(equalizer) {
+            onDispose { equalizer?.release() }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp),
+            verticalArrangement = Arrangement.Top
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Equalizer",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = textWarm
+                )
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = {
+                        enabled = it
+                        equalizer?.enabled = it
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = accent,
+                        checkedTrackColor = accent.copy(alpha = 0.5f),
+                        uncheckedThumbColor = textMuted,
+                        uncheckedTrackColor = textMuted.copy(alpha = 0.4f)
+                    )
+                )
+            }
+
+            if (equalizer == null) {
+                Text(
+                    text = "Audio session not ready",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = textMuted
+                )
+                return
+            }
+
+            val bandCount = equalizer.numberOfBands.toInt()
+            val range = equalizer.bandLevelRange
+            val minLevel = range[0].toInt()
+            val maxLevel = range[1].toInt()
+
+            repeat(bandCount) { bandIndex ->
+                val band = bandIndex.toShort()
+                val centerHz = equalizer.getCenterFreq(band) / 1000
+                var level by remember(audioSessionId, bandIndex) {
+                    mutableStateOf(equalizer.getBandLevel(band).toInt())
+                }
+
+                Text(
+                    text = "${centerHz} Hz",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = textWarm,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+                Slider(
+                    value = level.toFloat(),
+                    valueRange = minLevel.toFloat()..maxLevel.toFloat(),
+                    onValueChange = { newValue ->
+                        level = newValue.toInt()
+                        equalizer.setBandLevel(band, newValue.toInt().toShort())
+                    },
+                    colors = SliderDefaults.colors(
+                        thumbColor = accent,
+                        activeTrackColor = accent,
+                        inactiveTrackColor = textMuted
+                    )
+                )
+            }
+        }
     }
 }
