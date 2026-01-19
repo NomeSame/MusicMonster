@@ -51,6 +51,7 @@ class MusicService : Service() {
         const val CHANNEL_ID = "monsterplayer_channel"
         const val NOTIFICATION_ID = 1
         const val ACTION_TOGGLE_SHUFFLE = "com.example.myapplication.action.TOGGLE_SHUFFLE"
+        const val ACTION_RELOAD_LIBRARY = "com.example.myapplication.action.RELOAD_LIBRARY"
         /**
          * Holds the session token once the service has created its MediaSession.
          * Activities can read this to construct a {@link MediaControllerCompat}.
@@ -230,6 +231,10 @@ class MusicService : Service() {
             updateNotification(player.isPlaying)
             return START_STICKY
         }
+        if (intent?.action == ACTION_RELOAD_LIBRARY) {
+            reloadPlaylistPreservingCurrent()
+            return START_STICKY
+        }
 
         MediaButtonReceiver.handleIntent(session, intent)
         return START_STICKY
@@ -361,7 +366,7 @@ class MusicService : Service() {
             .setStyle(
                 androidx.media.app.NotificationCompat.MediaStyle()
                     .setMediaSession(session.sessionToken)
-                    .setShowActionsInCompactView(0, 1, 2)
+                    .setShowActionsInCompactView(0, 1, 2, 3)
             )
             .build()
     }
@@ -382,5 +387,28 @@ class MusicService : Service() {
         } else {
             true
         }
+    }
+
+    private fun reloadPlaylistPreservingCurrent() {
+        val currentId = player.currentMediaItem?.mediaId
+        val currentPosition = player.currentPosition
+        val (items, itemTitles) = loadDevicePlaylist()
+        titles = itemTitles
+        if (items.isEmpty()) {
+            player.stop()
+            updateSessionMetadata()
+            updateNotification(false)
+            return
+        }
+
+        val targetIndex = currentId?.let { id ->
+            items.indexOfFirst { it.mediaId == id }.takeIf { it >= 0 }
+        } ?: 0
+
+        player.setMediaItems(items, targetIndex, currentPosition)
+        player.prepare()
+        updateSessionMetadata()
+        setPlaybackState(player.isPlaying)
+        updateNotification(player.isPlaying)
     }
 }

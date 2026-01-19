@@ -31,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.Divider
 import androidx.compose.material3.CircularProgressIndicator
@@ -59,6 +60,7 @@ import android.content.ContentUris
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.Brush
 import com.example.myapplication.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.delay
 
 
 /**
@@ -77,27 +79,41 @@ class MainActivity : ComponentActivity() {
     private val nowPlayingId = mutableStateOf<String?>(null)
     private val isPlaying = mutableStateOf(false)
     private val isShuffled = mutableStateOf(false)
+    private val playbackPositionMs = mutableStateOf(0L)
+    private val playbackDurationMs = mutableStateOf(0L)
     private var controllerReady by mutableStateOf(false)
+    private var serviceStarted = false
 
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) loadSongs()
+        if (granted) {
+            loadSongs()
+            startMusicService()
+        }
+    }
+
+    private val requestNotificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = ActivityCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         requestAudioPermissionAndLoad()
-
-        // Start the foreground music service so lockscreen controls work.
-        val intent = Intent(this, MusicService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
+        requestNotificationPermissionIfNeeded()
 
         setContent {
             MyApplicationTheme {
@@ -134,7 +150,25 @@ class MainActivity : ComponentActivity() {
         ) {
             requestPermissionLauncher.launch(permission)
         } else {
-            if (songs.isEmpty()) loadSongs()
+            if (songs.isEmpty()) {
+                loadSongs()
+            }
+            startMusicService()
+        }
+    }
+
+    private fun startMusicService() {
+        val intent = Intent(this, MusicService::class.java)
+        if (!serviceStarted) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            serviceStarted = true
+        } else {
+            intent.action = MusicService.ACTION_RELOAD_LIBRARY
+            startService(intent)
         }
     }
 
@@ -188,20 +222,23 @@ class MainActivity : ComponentActivity() {
                     mediaController = MediaControllerCompat(this@MainActivity, token)
 
                     mediaController.registerCallback(object : MediaControllerCompat.Callback() {
-                    override fun onPlaybackStateChanged(state: PlaybackStateCompat?) {
-                        isPlaying.value = state?.state == PlaybackStateCompat.STATE_PLAYING
-                    }
+                        override fun onPlaybackStateChanged(state: PlaybackStateCompat?) {
+                            isPlaying.value = state?.state == PlaybackStateCompat.STATE_PLAYING
+                            playbackPositionMs.value = state?.position ?: 0L
+                        }
 
-                    override fun onMetadataChanged(metadata: MediaMetadataCompat?) {
-                        nowPlayingTitle.value =
-                            metadata?.getString(MediaMetadataCompat.METADATA_KEY_TITLE)
-                        nowPlayingId.value =
-                            metadata?.getString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID)
-                    }
+                        override fun onMetadataChanged(metadata: MediaMetadataCompat?) {
+                            nowPlayingTitle.value =
+                                metadata?.getString(MediaMetadataCompat.METADATA_KEY_TITLE)
+                            nowPlayingId.value =
+                                metadata?.getString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID)
+                            playbackDurationMs.value =
+                                metadata?.getLong(MediaMetadataCompat.METADATA_KEY_DURATION) ?: 0L
+                        }
 
-                    override fun onShuffleModeChanged(shuffleMode: Int) {
-                        isShuffled.value = shuffleMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
-                    }
+                        override fun onShuffleModeChanged(shuffleMode: Int) {
+                            isShuffled.value = shuffleMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
+                        }
                     })
 
                     isShuffled.value = mediaController.shuffleMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
@@ -209,6 +246,9 @@ class MainActivity : ComponentActivity() {
                         ?.getString(MediaMetadataCompat.METADATA_KEY_TITLE)
                     nowPlayingId.value = mediaController.metadata
                         ?.getString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID)
+                    playbackDurationMs.value = mediaController.metadata
+                        ?.getLong(MediaMetadataCompat.METADATA_KEY_DURATION) ?: 0L
+                    playbackPositionMs.value = mediaController.playbackState?.position ?: 0L
                     controllerReady = true // ✅ put this here (triggers recomposition)
                 } else {
                     handler.postDelayed(this, 500)
@@ -227,6 +267,18 @@ class MainActivity : ComponentActivity() {
         val shuffled = isShuffled.value
         var expanded by rememberSaveable { mutableStateOf(false) }
         val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
+        var isScrubbing by rememberSaveable { mutableStateOf(false) }
+        var scrubPositionMs by rememberSaveable { mutableStateOf(0L) }
+        val durationMs = playbackDurationMs.value
+        val positionMs = playbackPositionMs.value
+        val effectivePosition = if (isScrubbing) scrubPositionMs else positionMs
+
+        LaunchedEffect(playing, isScrubbing) {
+            while (playing && !isScrubbing) {
+                playbackPositionMs.value = mediaController.playbackState?.position ?: 0L
+                delay(1000L)
+            }
+        }
 
         val backgroundBrush = Brush.verticalGradient(
             colors = listOf(
@@ -443,6 +495,41 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
+                        if (durationMs > 0L) {
+                            Slider(
+                                value = (effectivePosition / durationMs.toFloat())
+                                    .coerceIn(0f, 1f),
+                                onValueChange = { value ->
+                                    isScrubbing = true
+                                    scrubPositionMs = (durationMs * value).toLong()
+                                },
+                                onValueChangeFinished = {
+                                    mediaController.transportControls.seekTo(scrubPositionMs)
+                                    isScrubbing = false
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp)
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp, bottom = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = formatTime(effectivePosition),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = formatTime(durationMs),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
                         val shuffleTint =
                             if (shuffled) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
 
@@ -504,5 +591,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun formatTime(timeMs: Long): String {
+        val totalSeconds = (timeMs / 1000).coerceAtLeast(0)
+        val minutes = totalSeconds / 60
+        val seconds = totalSeconds % 60
+        return String.format("%d:%02d", minutes, seconds)
     }
 }
