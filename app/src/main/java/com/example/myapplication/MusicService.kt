@@ -58,6 +58,8 @@ class MusicService : Service() {
     private var titles: List<String> = emptyList()
     private var libraryItems: Map<String, MediaItem> = emptyMap()
     private var libraryTitles: Map<String, String> = emptyMap()
+    private var libraryDurations: Map<String, Long> = emptyMap()
+    private var currentQueueIds: List<String> = emptyList()
     private val prefs: SharedPreferences by lazy {
         getSharedPreferences("music_prefs", MODE_PRIVATE)
     }
@@ -102,10 +104,12 @@ class MusicService : Service() {
         player.repeatMode = Player.REPEAT_MODE_ALL
 
         // ✅ Load device songs (MediaStore) instead of raw
-        val (items, itemTitles) = loadDevicePlaylist()
+        val (items, itemTitles, itemDurations) = loadDevicePlaylist()
         titles = itemTitles
         libraryItems = items.associateBy { it.mediaId }
         libraryTitles = items.zip(itemTitles).associate { it.first.mediaId to it.second }
+        libraryDurations = itemDurations
+        currentQueueIds = items.map { it.mediaId }
 
 
         if (items.isNotEmpty()) {
@@ -133,6 +137,7 @@ class MusicService : Service() {
 
                     setPlaybackState(true)
                     updateSessionMetadata()
+                    updateSessionExtras()
                     updateNotification(true)
                 }
 
@@ -141,6 +146,7 @@ class MusicService : Service() {
                     player.play()
                     setPlaybackState(true)
                     updateSessionMetadata()
+                    updateSessionExtras()
                     updateNotification(true)
                 }
 
@@ -223,7 +229,10 @@ class MusicService : Service() {
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                if (player.shuffleModeEnabled && reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
+                if (player.shuffleModeEnabled &&
+                    (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+                        reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)
+                ) {
                     reshufflePlaylist()
                 }
                 updateSessionMetadata()
@@ -318,9 +327,8 @@ class MusicService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    // Returns a pair of MediaItems and their titles.  The MediaItem is built with a mediaId that matches the
-    // Song.id used by the activity.
-    private fun loadDevicePlaylist(): Pair<List<MediaItem>, List<String>> {
+    // Returns MediaItems, titles, and durations (ms) keyed by mediaId.
+    private fun loadDevicePlaylist(): Triple<List<MediaItem>, List<String>, Map<String, Long>> {
         val treeUri = prefs.getString("library_tree_uri", null)?.let { Uri.parse(it) }
         if (treeUri != null) {
             return loadTreePlaylist(treeUri)
@@ -332,46 +340,54 @@ class MusicService : Service() {
                 Manifest.permission.READ_EXTERNAL_STORAGE
 
         if (ActivityCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
-            return emptyList<MediaItem>() to emptyList()
+            return Triple(emptyList(), emptyList(), emptyMap())
         }
 
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
-            MediaStore.Audio.Media.TITLE
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.DURATION
         )
         val selection = "${MediaStore.Audio.Media.IS_MUSIC}!=0"
         val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
 
         val items = mutableListOf<MediaItem>()
         val titles = mutableListOf<String>()
+        val durations = mutableMapOf<String, Long>()
 
         contentResolver.query(collection, projection, selection, null, sortOrder)?.use { cursor ->
             val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
             val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+            val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
 
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idCol)
                 val title = cursor.getString(titleCol) ?: "Unknown"
+                val duration = cursor.getLong(durationCol)
 
                 // Build MediaItem with mediaId so the activity can play by ID.
                 val contentUri = ContentUris.withAppendedId(collection, id)
+                val mediaId = id.toString()
                 items.add(MediaItem.Builder()
-                    .setMediaId(id.toString())
+                    .setMediaId(mediaId)
                     .setUri(contentUri)
                     .build())
                 titles.add(title)
+                durations[mediaId] = duration
             }
         }
 
-        return items to titles
+        return Triple(items, titles, durations)
     }
 
-    private fun loadTreePlaylist(treeUri: Uri): Pair<List<MediaItem>, List<String>> {
-        val root = DocumentFile.fromTreeUri(this, treeUri) ?: return emptyList<MediaItem>() to emptyList()
+    private fun loadTreePlaylist(treeUri: Uri): Triple<List<MediaItem>, List<String>, Map<String, Long>> {
+        val root = DocumentFile.fromTreeUri(this, treeUri)
+            ?: return Triple(emptyList(), emptyList(), emptyMap())
         val stack = ArrayDeque<DocumentFile>()
         val items = mutableListOf<MediaItem>()
         val titles = mutableListOf<String>()
+        val durations = mutableMapOf<String, Long>()
         stack.add(root)
         while (stack.isNotEmpty()) {
             val doc = stack.removeFirst()
@@ -389,18 +405,22 @@ class MusicService : Service() {
                 if (isAudio) {
                     val title = name.substringBeforeLast('.')
                     val uri = doc.uri
+                    val mediaId = uri.toString()
                     items.add(
                         MediaItem.Builder()
-                            .setMediaId(uri.toString())
+                            .setMediaId(mediaId)
                             .setUri(uri)
                             .build()
                     )
                     titles.add(title)
+                    durations[mediaId] = 0L
                 }
             }
         }
         val combined = items.zip(titles).sortedBy { it.second.lowercase() }
-        return combined.map { it.first } to combined.map { it.second }
+        val sortedItems = combined.map { it.first }
+        val sortedTitles = combined.map { it.second }
+        return Triple(sortedItems, sortedTitles, durations)
     }
 
     private fun setPlaybackState(isPlaying: Boolean) {
@@ -547,10 +567,12 @@ class MusicService : Service() {
     private fun reloadPlaylistPreservingCurrent() {
         val currentId = player.currentMediaItem?.mediaId
         val currentPosition = player.currentPosition
-        val (items, itemTitles) = loadDevicePlaylist()
+        val (items, itemTitles, itemDurations) = loadDevicePlaylist()
         titles = itemTitles
         libraryItems = items.associateBy { it.mediaId }
         libraryTitles = items.zip(itemTitles).associate { it.first.mediaId to it.second }
+        libraryDurations = itemDurations
+        currentQueueIds = items.map { it.mediaId }
         if (items.isEmpty()) {
             player.stop()
             updateSessionMetadata()
@@ -578,6 +600,7 @@ class MusicService : Service() {
         if (items.isEmpty()) return
         val titlesForPlaylist = ids.mapNotNull { libraryTitles[it] }
         titles = titlesForPlaylist
+        currentQueueIds = ids
         val startIndex = startId?.let { ids.indexOf(it) }?.takeIf { it >= 0 } ?: 0
         player.setMediaItems(items, startIndex, 0L)
         player.prepare()
@@ -593,8 +616,14 @@ class MusicService : Service() {
     private fun reshufflePlaylist() {
         val count = player.mediaItemCount
         if (count > 1) {
-            player.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(count))
+            val seed = buildShuffleSeed()
+            player.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(count, seed))
         }
+    }
+
+    private fun buildShuffleSeed(): Long {
+        val maxDuration = currentQueueIds.maxOfOrNull { libraryDurations[it] ?: 0L } ?: 0L
+        return System.currentTimeMillis() + maxDuration + SystemClock.elapsedRealtime()
     }
 
     private fun startSleepTimer(durationMs: Long, fadeMs: Long) {

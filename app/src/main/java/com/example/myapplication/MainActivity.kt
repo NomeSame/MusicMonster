@@ -78,6 +78,9 @@ import android.os.Handler
 import android.os.Looper
 import android.content.ContentUris
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.delay
 import androidx.documentfile.provider.DocumentFile
@@ -664,8 +667,22 @@ class MainActivity : ComponentActivity() {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Color(0xFF1B110C).copy(alpha = 0.95f))
+                                .background(
+                                    if (pagerState.currentPage == 1) {
+                                        Color.Transparent
+                                    } else {
+                                        Color(0xFF1B110C).copy(alpha = 0.95f)
+                                    }
+                                )
                         ) {
+                            if (pagerState.currentPage == 1) {
+                                Image(
+                                    painter = painterResource(id = R.drawable.background_screen2),
+                                    contentDescription = null,
+                                    contentScale = ContentScale.FillBounds,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
