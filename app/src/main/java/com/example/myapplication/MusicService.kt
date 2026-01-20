@@ -27,6 +27,7 @@ import android.support.v4.media.session.PlaybackStateCompat
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.Player
+import com.google.android.exoplayer2.source.ShuffleOrder
 
 import android.os.Bundle
 import android.support.v4.media.MediaMetadataCompat
@@ -37,6 +38,10 @@ class MusicService : Service() {
     private lateinit var player: ExoPlayer
     private lateinit var session: MediaSessionCompat
     private val positionHandler = Handler(Looper.getMainLooper())
+    private val sleepHandler = Handler(Looper.getMainLooper())
+    private var sleepRunnable: Runnable? = null
+    private var fadeRunnable: Runnable? = null
+    private var originalVolume = 1f
     private val positionUpdate = object : Runnable {
         override fun run() {
             setPlaybackState(player.isPlaying)
@@ -54,6 +59,10 @@ class MusicService : Service() {
         const val NOTIFICATION_ID = 1
         const val ACTION_TOGGLE_SHUFFLE = "com.example.myapplication.action.TOGGLE_SHUFFLE"
         const val ACTION_RELOAD_LIBRARY = "com.example.myapplication.action.RELOAD_LIBRARY"
+        const val ACTION_SET_SLEEP_TIMER = "com.example.myapplication.action.SET_SLEEP_TIMER"
+        const val ACTION_CANCEL_SLEEP_TIMER = "com.example.myapplication.action.CANCEL_SLEEP_TIMER"
+        const val EXTRA_SLEEP_MS = "extra_sleep_ms"
+        const val EXTRA_FADE_MS = "extra_fade_ms"
         /**
          * Holds the session token once the service has created its MediaSession.
          * Activities can read this to construct a {@link MediaControllerCompat}.
@@ -79,6 +88,7 @@ class MusicService : Service() {
         }
 
         player = ExoPlayer.Builder(this).build()
+        player.repeatMode = Player.REPEAT_MODE_ALL
 
         // ✅ Load device songs (MediaStore) instead of raw
         val (items, itemTitles) = loadDevicePlaylist()
@@ -148,6 +158,9 @@ class MusicService : Service() {
                 override fun onSetShuffleMode(shuffleMode: Int) {
                     val enabled = shuffleMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
                     player.shuffleModeEnabled = enabled
+                    if (enabled) {
+                        reshufflePlaylist()
+                    }
                     session.setShuffleMode(shuffleMode)
                     setPlaybackState(player.isPlaying)
                     updateNotification(player.isPlaying)
@@ -197,6 +210,9 @@ class MusicService : Service() {
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (player.shuffleModeEnabled && reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
+                    reshufflePlaylist()
+                }
                 updateSessionMetadata()
                 setPlaybackState(player.isPlaying)
                 updateNotification(player.isPlaying)
@@ -243,6 +259,9 @@ class MusicService : Service() {
                 PlaybackStateCompat.SHUFFLE_MODE_ALL
             }
             player.shuffleModeEnabled = newMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
+            if (player.shuffleModeEnabled) {
+                reshufflePlaylist()
+            }
             session.setShuffleMode(newMode)
             setPlaybackState(player.isPlaying)
             updateNotification(player.isPlaying)
@@ -250,6 +269,18 @@ class MusicService : Service() {
         }
         if (intent?.action == ACTION_RELOAD_LIBRARY) {
             reloadPlaylistPreservingCurrent()
+            return START_STICKY
+        }
+        if (intent?.action == ACTION_SET_SLEEP_TIMER) {
+            val sleepMs = intent.getLongExtra(EXTRA_SLEEP_MS, 0L)
+            val fadeMs = intent.getLongExtra(EXTRA_FADE_MS, 0L)
+            if (sleepMs > 0L) {
+                startSleepTimer(sleepMs, fadeMs)
+            }
+            return START_STICKY
+        }
+        if (intent?.action == ACTION_CANCEL_SLEEP_TIMER) {
+            cancelSleepTimer()
             return START_STICKY
         }
 
@@ -262,6 +293,7 @@ class MusicService : Service() {
         session.release()
         player.release()
         positionHandler.removeCallbacks(positionUpdate)
+        cancelSleepTimer()
         super.onDestroy()
     }
 
@@ -471,8 +503,67 @@ class MusicService : Service() {
 
         player.setMediaItems(items, targetIndex, currentPosition)
         player.prepare()
+        if (player.shuffleModeEnabled) {
+            reshufflePlaylist()
+        }
         updateSessionMetadata()
         setPlaybackState(player.isPlaying)
         updateNotification(player.isPlaying)
+    }
+
+    private fun reshufflePlaylist() {
+        val count = player.mediaItemCount
+        if (count > 1) {
+            player.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(count))
+        }
+    }
+
+    private fun startSleepTimer(durationMs: Long, fadeMs: Long) {
+        cancelSleepTimer()
+        val safeFadeMs = fadeMs.coerceAtMost(durationMs)
+        val waitMs = (durationMs - safeFadeMs).coerceAtLeast(0L)
+        sleepRunnable = Runnable {
+            if (safeFadeMs > 0L) {
+                startFadeOut(safeFadeMs)
+            } else {
+                player.pause()
+                setPlaybackState(false)
+                updateNotification(false)
+            }
+        }
+        sleepHandler.postDelayed(sleepRunnable!!, waitMs)
+    }
+
+    private fun startFadeOut(fadeMs: Long) {
+        fadeRunnable?.let { sleepHandler.removeCallbacks(it) }
+        originalVolume = player.volume
+        val steps = (fadeMs / 200L).coerceAtLeast(1L).toInt()
+        var step = 0
+        val stepDuration = fadeMs / steps
+        val runnable = object : Runnable {
+            override fun run() {
+                step++
+                val progress = step / steps.toFloat()
+                player.volume = originalVolume * (1f - progress).coerceIn(0f, 1f)
+                if (step < steps) {
+                    sleepHandler.postDelayed(this, stepDuration)
+                } else {
+                    player.pause()
+                    player.volume = originalVolume
+                    setPlaybackState(false)
+                    updateNotification(false)
+                }
+            }
+        }
+        fadeRunnable = runnable
+        sleepHandler.post(runnable)
+    }
+
+    private fun cancelSleepTimer() {
+        sleepRunnable?.let { sleepHandler.removeCallbacks(it) }
+        fadeRunnable?.let { sleepHandler.removeCallbacks(it) }
+        sleepRunnable = null
+        fadeRunnable = null
+        player.volume = originalVolume
     }
 }

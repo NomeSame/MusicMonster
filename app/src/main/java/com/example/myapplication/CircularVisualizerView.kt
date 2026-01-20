@@ -75,7 +75,20 @@ class CircularVisualizerView @JvmOverloads constructor(
                         val scale = 1f / maxMag
                         for (i in 0 until barCount) {
                             val target = (magnitudes[i] * scale).coerceIn(0f, 1f)
-                            magnitudes[i] = (magnitudes[i] * 0.6f) + (target * 0.4f)
+                            val prev = magnitudes[i].coerceIn(0f, 1f)
+                            val smoothed = if (target > prev) {
+                                prev + (target - prev) * 0.45f
+                            } else {
+                                prev - (prev - target) * 0.2f
+                            }
+                            magnitudes[i] = smoothed
+                        }
+                        val half = barCount / 2
+                        for (i in 0 until half) {
+                            val j = i + half
+                            val avg = (magnitudes[i] + magnitudes[j]) / 2f
+                            magnitudes[i] = avg
+                            magnitudes[j] = avg
                         }
                         postInvalidateOnAnimation()
                     }

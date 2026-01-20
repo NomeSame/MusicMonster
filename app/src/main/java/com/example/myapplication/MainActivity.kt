@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,6 +19,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material.icons.Icons
@@ -40,6 +43,9 @@ import androidx.compose.material3.Divider
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,8 +59,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.core.app.ActivityCompat
 import android.media.audiofx.Equalizer
+import android.media.audiofx.BassBoost
 import android.support.v4.media.session.MediaControllerCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.PlaybackStateCompat
@@ -91,6 +100,10 @@ class MainActivity : ComponentActivity() {
     private val eqBandCount = mutableStateOf(0)
     private val eqBandHz = mutableStateListOf<Int>()
     private var equalizer: Equalizer? = null
+    private var bassBoost: BassBoost? = null
+    private val bassBoostEnabled = mutableStateOf(false)
+    private val bassBoostStrength = mutableStateOf(600)
+    private val eqPresetLabel = mutableStateOf("Flat")
     private var controllerReady by mutableStateOf(false)
     private var serviceStarted = false
 
@@ -466,23 +479,45 @@ class MainActivity : ComponentActivity() {
                                                 eqEnabled = eqEnabled.value,
                                                 onEqEnabledChanged = { eqEnabled.value = it },
                                                 eqBandLevels = eqBandLevels,
-                                                eqBandCount = eqBandCount
+                                                eqBandCount = eqBandCount,
+                                                bassBoostEnabled = bassBoostEnabled.value,
+                                                onBassBoostEnabled = { bassBoostEnabled.value = it },
+                                                bassBoostStrength = bassBoostStrength.value,
+                                                onBassBoostStrength = { bassBoostStrength.value = it },
+                                                presetLabel = eqPresetLabel.value,
+                                                onPresetSelected = { label, levels ->
+                                                    eqPresetLabel.value = label
+                                                    if (levels.isNotEmpty()) {
+                                                        eqBandLevels.clear()
+                                                        eqBandLevels.addAll(levels)
+                                                        eqBandCount.value = levels.size
+                                                        val eq = equalizer
+                                                        if (eq != null) {
+                                                            val range = eq.bandLevelRange
+                                                            for (bandIndex in levels.indices) {
+                                                                val band = bandIndex.toShort()
+                                                                val level = levels[bandIndex].toShort()
+                                                                eq.setBandLevel(
+                                                                    band,
+                                                                    level.coerceIn(range[0], range[1])
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             )
                                             1 -> VisualizerPanel(
                                                 audioSessionId = audioSessionId.value,
                                                 textWarm = textWarm,
                                                 accent = iconGlow
                                             )
-                                            else -> Box(
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = "Screen ${page + 1}",
-                                                    style = MaterialTheme.typography.headlineSmall,
-                                                    color = textWarm
-                                                )
-                                            }
+                                            else -> QueueAndSleepPanel(
+                                                songs = songs,
+                                                currentId = currentId,
+                                                textWarm = textWarm,
+                                                textMuted = textMuted,
+                                                accent = iconGlow
+                                            )
                                         }
                                     }
                                 }
@@ -680,9 +715,294 @@ class MainActivity : ComponentActivity() {
         return String.format("%d:%02d", minutes, seconds)
     }
 
+    private fun startSleepTimer(durationMs: Long, fadeMs: Long) {
+        if (durationMs <= 0L) return
+        val intent = Intent(this, MusicService::class.java).apply {
+            action = MusicService.ACTION_SET_SLEEP_TIMER
+            putExtra(MusicService.EXTRA_SLEEP_MS, durationMs)
+            putExtra(MusicService.EXTRA_FADE_MS, fadeMs)
+        }
+        startService(intent)
+    }
+
+    private fun cancelSleepTimer() {
+        val intent = Intent(this, MusicService::class.java).apply {
+            action = MusicService.ACTION_CANCEL_SLEEP_TIMER
+        }
+        startService(intent)
+    }
+
+    @Composable
+    private fun QueueAndSleepPanel(
+        songs: List<Song>,
+        currentId: String?,
+        textWarm: Color,
+        textMuted: Color,
+        accent: Color
+    ) {
+        val currentIndex = songs.indexOfFirst { it.id == currentId }
+        val upNext = if (songs.isNotEmpty() && currentIndex >= 0) {
+            val tail = songs.drop(currentIndex + 1)
+            val head = songs.take(currentIndex)
+            tail + head
+        } else {
+            emptyList()
+        }
+        var hoursText by rememberSaveable { mutableStateOf("") }
+        var minutesText by rememberSaveable { mutableStateOf("") }
+        var secondsText by rememberSaveable { mutableStateOf("") }
+        var sleepTotalMs by rememberSaveable { mutableStateOf(0L) }
+        var sleepRemainingMs by rememberSaveable { mutableStateOf(0L) }
+        var sleepTargetElapsedMs by rememberSaveable { mutableStateOf<Long?>(null) }
+        var timerRunning by rememberSaveable { mutableStateOf(false) }
+
+        LaunchedEffect(sleepTargetElapsedMs, timerRunning) {
+            if (sleepTargetElapsedMs == null || !timerRunning) return@LaunchedEffect
+            while (timerRunning) {
+                val remaining = (sleepTargetElapsedMs!! - SystemClock.elapsedRealtime())
+                    .coerceAtLeast(0L)
+                sleepRemainingMs = remaining
+                if (remaining == 0L) {
+                    timerRunning = false
+                    break
+                }
+                delay(1000L)
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 12.dp)
+        ) {
+            item {
+                Text(
+                    text = "Up Next",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = textWarm,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+
+            if (upNext.isEmpty()) {
+                item {
+                    Text(
+                        text = "No upcoming tracks",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = textMuted,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                }
+            } else {
+                itemsIndexed(upNext) { index, song ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp)
+                            .clickable {
+                                mediaController.transportControls.playFromMediaId(song.id, null)
+                            },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${index + 1}. ${song.title}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = textWarm,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = formatTime(song.durationMs),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = textMuted,
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Sleep Timer",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = textWarm,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Button(onClick = {
+                        val totalMs = 15 * 60_000L
+                        sleepTotalMs = totalMs
+                        sleepRemainingMs = totalMs
+                        sleepTargetElapsedMs = SystemClock.elapsedRealtime() + totalMs
+                        timerRunning = true
+                        startSleepTimer(totalMs, 10_000L)
+                    }) {
+                        Text("15m", color = textWarm)
+                    }
+                    Button(onClick = {
+                        val totalMs = 30 * 60_000L
+                        sleepTotalMs = totalMs
+                        sleepRemainingMs = totalMs
+                        sleepTargetElapsedMs = SystemClock.elapsedRealtime() + totalMs
+                        timerRunning = true
+                        startSleepTimer(totalMs, 10_000L)
+                    }) {
+                        Text("30m", color = textWarm)
+                    }
+                    Button(onClick = {
+                        val totalMs = 60 * 60_000L
+                        sleepTotalMs = totalMs
+                        sleepRemainingMs = totalMs
+                        sleepTargetElapsedMs = SystemClock.elapsedRealtime() + totalMs
+                        timerRunning = true
+                        startSleepTimer(totalMs, 10_000L)
+                    }) {
+                        Text("60m", color = textWarm)
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = hoursText,
+                        onValueChange = { hoursText = it.filter(Char::isDigit).take(2) },
+                        label = { Text("Hours", color = textMuted) },
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = accent,
+                            focusedLabelColor = accent,
+                            unfocusedBorderColor = textMuted,
+                            unfocusedLabelColor = textMuted,
+                            cursorColor = accent
+                        ),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = minutesText,
+                        onValueChange = { minutesText = it.filter(Char::isDigit).take(2) },
+                        label = { Text("Minutes", color = textMuted) },
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = accent,
+                            focusedLabelColor = accent,
+                            unfocusedBorderColor = textMuted,
+                            unfocusedLabelColor = textMuted,
+                            cursorColor = accent
+                        ),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = secondsText,
+                        onValueChange = { secondsText = it.filter(Char::isDigit).take(2) },
+                        label = { Text("Seconds", color = textMuted) },
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = accent,
+                            focusedLabelColor = accent,
+                            unfocusedBorderColor = textMuted,
+                            unfocusedLabelColor = textMuted,
+                            cursorColor = accent
+                        ),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Button(onClick = {
+                        val h = hoursText.toLongOrNull() ?: 0L
+                        val m = minutesText.toLongOrNull() ?: 0L
+                        val s = secondsText.toLongOrNull() ?: 0L
+                        val totalMs = (h * 3600 + m * 60 + s) * 1000L
+                        if (totalMs > 0L) {
+                            sleepTotalMs = totalMs
+                            sleepRemainingMs = totalMs
+                            sleepTargetElapsedMs = SystemClock.elapsedRealtime() + totalMs
+                            timerRunning = true
+                            startSleepTimer(totalMs, 10_000L)
+                        }
+                    }) {
+                        Text("Start", color = textWarm)
+                    }
+                    Button(onClick = {
+                        cancelSleepTimer()
+                        timerRunning = false
+                        sleepTargetElapsedMs = null
+                        sleepRemainingMs = sleepTotalMs
+                    }) {
+                        Text("Cancel", color = textWarm)
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                if (sleepTotalMs > 0L) {
+                    val remainingLabel = formatHms(sleepRemainingMs)
+                    Text(
+                        text = if (timerRunning) "Time left: $remainingLabel" else "Set time: $remainingLabel",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = textMuted
+                    )
+                }
+            }
+        }
+    }
+
+    private fun buildPresetLevels(label: String, equalizer: Equalizer): List<Int> {
+        val bandCount = equalizer.numberOfBands.toInt()
+        val range = equalizer.bandLevelRange
+        val minLevel = range[0].toInt()
+        val maxLevel = range[1].toInt()
+        val boost = (maxLevel * 0.75f).toInt()
+        val mid = (maxLevel * 0.35f).toInt()
+        val cut = (minLevel * 0.6f).toInt()
+
+        val curve = when (label.lowercase()) {
+            "metal" -> listOf(boost, mid, 0, mid, boost)
+            "rock" -> listOf(mid, boost, mid, boost, mid)
+            "classic" -> listOf(cut, 0, mid, mid, cut)
+            "pop" -> listOf(0, mid, boost, mid, 0)
+            "flat" -> listOf(0, 0, 0, 0, 0)
+            else -> listOf(0, 0, 0, 0, 0)
+        }
+
+        if (equalizer.numberOfPresets > 0) {
+            for (i in 0 until equalizer.numberOfPresets) {
+                val preset = i.toShort()
+                val name = equalizer.getPresetName(preset).lowercase()
+                if (name.contains(label.lowercase())) {
+                    equalizer.usePreset(preset)
+                    return List(bandCount) { bandIndex ->
+                        equalizer.getBandLevel(bandIndex.toShort()).toInt()
+                    }
+                }
+            }
+        }
+
+        return List(bandCount) { bandIndex ->
+            val idx = (bandIndex.toFloat() / (bandCount - 1).coerceAtLeast(1)).times(4).toInt()
+                .coerceIn(0, 4)
+            curve[idx].coerceIn(minLevel, maxLevel)
+        }
+    }
+
     private fun setupEqualizerForSession(sessionId: Int) {
         equalizer?.release()
         equalizer = null
+        bassBoost?.release()
+        bassBoost = null
         if (sessionId == 0) return
         try {
             val eq = Equalizer(0, sessionId)
@@ -708,6 +1028,15 @@ class MainActivity : ComponentActivity() {
             equalizer = eq
         } catch (_: Throwable) {
             equalizer = null
+        }
+
+        try {
+            val bb = BassBoost(0, sessionId)
+            bb.enabled = bassBoostEnabled.value
+            bb.setStrength(bassBoostStrength.value.toShort())
+            bassBoost = bb
+        } catch (_: Throwable) {
+            bassBoost = null
         }
     }
 
@@ -753,14 +1082,21 @@ class MainActivity : ComponentActivity() {
         eqEnabled: Boolean,
         onEqEnabledChanged: (Boolean) -> Unit,
         eqBandLevels: MutableList<Int>,
-        eqBandCount: MutableState<Int>
+        eqBandCount: MutableState<Int>,
+        bassBoostEnabled: Boolean,
+        onBassBoostEnabled: (Boolean) -> Unit,
+        bassBoostStrength: Int,
+        onBassBoostStrength: (Int) -> Unit,
+        presetLabel: String,
+        onPresetSelected: (String, List<Int>) -> Unit
     ) {
         val equalizer = equalizer
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 8.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.Top
         ) {
             Row(
@@ -798,6 +1134,87 @@ class MainActivity : ComponentActivity() {
                 )
                 return
             }
+
+            Text(
+                text = "Presets: $presetLabel",
+                style = MaterialTheme.typography.labelMedium,
+                color = textMuted,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            val presets = listOf("Metal", "Rock", "Classic", "Flat", "Pop")
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    presets.take(3).forEach { label ->
+                        Button(
+                            modifier = Modifier.weight(1f),
+                            onClick = { onPresetSelected(label, buildPresetLevels(label, equalizer)) }
+                        ) {
+                            Text(text = label, color = textWarm)
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    presets.drop(3).forEach { label ->
+                        Button(
+                            modifier = Modifier.weight(1f),
+                            onClick = { onPresetSelected(label, buildPresetLevels(label, equalizer)) }
+                        ) {
+                            Text(text = label, color = textWarm)
+                        }
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Bass Boost",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = textWarm
+                )
+                Switch(
+                    checked = bassBoostEnabled,
+                    onCheckedChange = {
+                        onBassBoostEnabled(it)
+                        bassBoost?.enabled = it
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = accent,
+                        checkedTrackColor = accent.copy(alpha = 0.5f),
+                        uncheckedThumbColor = textMuted,
+                        uncheckedTrackColor = textMuted.copy(alpha = 0.4f)
+                    )
+                )
+            }
+            Slider(
+                value = bassBoostStrength.toFloat(),
+                valueRange = 0f..1000f,
+                onValueChange = { newValue ->
+                    val value = newValue.toInt()
+                    onBassBoostStrength(value)
+                    bassBoost?.setStrength(value.toShort())
+                },
+                colors = SliderDefaults.colors(
+                    thumbColor = accent,
+                    activeTrackColor = accent,
+                    inactiveTrackColor = textMuted
+                )
+            )
 
             val bandCount = equalizer.numberOfBands.toInt()
             val range = equalizer.bandLevelRange
@@ -844,5 +1261,13 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    private fun formatHms(timeMs: Long): String {
+        val totalSeconds = (timeMs / 1000).coerceAtLeast(0)
+        val hours = totalSeconds / 3600
+        val minutes = (totalSeconds % 3600) / 60
+        val seconds = totalSeconds % 60
+        return String.format("%d:%02d:%02d", hours, minutes, seconds)
     }
 }
