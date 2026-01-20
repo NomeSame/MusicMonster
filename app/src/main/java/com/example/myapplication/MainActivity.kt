@@ -6,12 +6,14 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.net.Uri
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,6 +29,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
@@ -44,6 +49,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.*
@@ -74,6 +80,14 @@ import android.content.ContentUris
 import androidx.compose.ui.graphics.Brush
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.delay
+import androidx.documentfile.provider.DocumentFile
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.activity.compose.BackHandler
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 
 
 /**
@@ -83,6 +97,8 @@ class MainActivity : ComponentActivity() {
 
     // ✅ Make songs observable by Compose
     private var songs by mutableStateOf<List<Song>>(emptyList())
+    private val playlists = mutableStateListOf<Playlist>()
+    private var playlistSequence = 0
 
     // MediaController for interacting with the foreground service.
     private lateinit var mediaController: MediaControllerCompat
@@ -106,6 +122,43 @@ class MainActivity : ComponentActivity() {
     private val eqPresetLabel = mutableStateOf("Flat")
     private var controllerReady by mutableStateOf(false)
     private var serviceStarted = false
+
+    private val prefs by lazy { getSharedPreferences("music_prefs", MODE_PRIVATE) }
+
+    private class Playlist(
+        val id: String,
+        val name: String,
+        val songIds: SnapshotStateList<String>
+    )
+
+    private val selectFolderLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+            contentResolver.takePersistableUriPermission(uri, flags)
+            prefs.edit().putString("library_tree_uri", uri.toString()).apply()
+            loadSongs()
+            startMusicService()
+        }
+    }
+
+    private val exportPlaylistsLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            exportPlaylistsToUri(uri)
+        }
+    }
+
+    private val importPlaylistsLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            importPlaylistsFromUri(uri)
+        }
+    }
 
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -152,6 +205,7 @@ class MainActivity : ComponentActivity() {
         requestAudioPermissionAndLoad()
         requestNotificationPermissionIfNeeded()
         requestRecordAudioPermissionIfNeeded()
+        loadPlaylists()
 
         setContent {
             MyApplicationTheme {
@@ -211,6 +265,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadSongs() {
+        val treeUri = prefs.getString("library_tree_uri", null)?.let { Uri.parse(it) }
+        if (treeUri != null) {
+            songs = loadSongsFromTree(treeUri)
+            return
+        }
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
@@ -246,6 +305,143 @@ class MainActivity : ComponentActivity() {
         }
 
         songs = list
+    }
+
+    private fun loadSongsFromTree(treeUri: Uri): List<Song> {
+        val root = DocumentFile.fromTreeUri(this, treeUri) ?: return emptyList()
+        val list = mutableListOf<Song>()
+        val stack = ArrayDeque<DocumentFile>()
+        stack.add(root)
+        while (stack.isNotEmpty()) {
+            val doc = stack.removeFirst()
+            if (doc.isDirectory) {
+                doc.listFiles().forEach { stack.add(it) }
+            } else {
+                val name = doc.name ?: "Unknown"
+                val type = doc.type
+                if (type?.startsWith("audio/") == true || name.endsWith(".mp3", true)
+                    || name.endsWith(".m4a", true) || name.endsWith(".flac", true)
+                    || name.endsWith(".wav", true) || name.endsWith(".ogg", true)
+                ) {
+                    list.add(
+                        Song(
+                            id = doc.uri.toString(),
+                            title = name.substringBeforeLast('.'),
+                            uri = doc.uri,
+                            durationMs = 0L
+                        )
+                    )
+                }
+            }
+        }
+        return list.sortedBy { it.title.lowercase() }
+    }
+
+    private fun loadPlaylists() {
+        val raw = prefs.getString("playlists_json", null) ?: return
+        val parsed = mutableListOf<Playlist>()
+        try {
+            val array = JSONArray(raw)
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                val id = obj.optString("id")
+                val name = obj.optString("name")
+                if (id.isBlank() || name.isBlank()) continue
+                val songsJson = obj.optJSONArray("songs") ?: JSONArray()
+                val songIds = mutableStateListOf<String>()
+                for (s in 0 until songsJson.length()) {
+                    val songId = songsJson.optString(s)
+                    if (songId.isNotBlank()) {
+                        songIds.add(songId)
+                    }
+                }
+                parsed.add(Playlist(id = id, name = name, songIds = songIds))
+            }
+        } catch (_: Throwable) {
+            return
+        }
+        playlists.clear()
+        playlists.addAll(parsed)
+        playlistSequence = parsed.mapNotNull {
+            it.id.removePrefix("playlist_").toIntOrNull()
+        }.maxOrNull()?.plus(1) ?: 0
+    }
+
+    private fun savePlaylists() {
+        val array = JSONArray()
+        playlists.forEach { playlist ->
+            val obj = JSONObject()
+            obj.put("id", playlist.id)
+            obj.put("name", playlist.name)
+            val songsArray = JSONArray()
+            playlist.songIds.forEach { songsArray.put(it) }
+            obj.put("songs", songsArray)
+            array.put(obj)
+        }
+        prefs.edit().putString("playlists_json", array.toString()).apply()
+    }
+
+    private fun exportPlaylistsToUri(uri: Uri) {
+        val array = JSONArray()
+        playlists.forEach { playlist ->
+            val obj = JSONObject()
+            obj.put("id", playlist.id)
+            obj.put("name", playlist.name)
+            val songsArray = JSONArray()
+            playlist.songIds.forEach { songsArray.put(it) }
+            obj.put("songs", songsArray)
+            array.put(obj)
+        }
+        contentResolver.openOutputStream(uri)?.use { output ->
+            OutputStreamWriter(output).use { writer ->
+                writer.write(array.toString(2))
+            }
+        }
+    }
+
+    private fun importPlaylistsFromUri(uri: Uri) {
+        val raw = contentResolver.openInputStream(uri)?.use { input ->
+            BufferedReader(InputStreamReader(input)).readText()
+        } ?: return
+        try {
+            val array = JSONArray(raw)
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                val id = obj.optString("id")
+                val name = obj.optString("name")
+                if (name.isBlank()) continue
+                val songsJson = obj.optJSONArray("songs") ?: JSONArray()
+                val songIds = mutableListOf<String>()
+                for (s in 0 until songsJson.length()) {
+                    val songId = songsJson.optString(s)
+                    if (songId.isNotBlank()) {
+                        songIds.add(songId)
+                    }
+                }
+                val existing = playlists.firstOrNull { it.id == id || it.name.equals(name, true) }
+                if (existing != null) {
+                    songIds.forEach { songId ->
+                        if (!existing.songIds.contains(songId)) {
+                            existing.songIds.add(songId)
+                        }
+                    }
+                } else {
+                    val playlistId = if (id.isBlank()) "playlist_${playlistSequence++}" else id
+                    val merged = Playlist(
+                        id = playlistId,
+                        name = name,
+                        songIds = mutableStateListOf<String>().apply { addAll(songIds.distinct()) }
+                    )
+                    playlists.add(merged)
+                }
+            }
+        } catch (_: Throwable) {
+            return
+        }
+        playlistSequence = playlists.mapNotNull {
+            it.id.removePrefix("playlist_").toIntOrNull()
+        }.maxOrNull()?.plus(1) ?: playlistSequence
+        savePlaylists()
     }
 
     /**
@@ -326,6 +522,9 @@ class MainActivity : ComponentActivity() {
         val durationMs = playbackDurationMs.value
         val positionMs = playbackPositionMs.value
         val effectivePosition = if (isScrubbing) scrubPositionMs else positionMs
+        var playlistTargetSong by remember { mutableStateOf<Song?>(null) }
+        var newPlaylistName by rememberSaveable { mutableStateOf("") }
+        val showPlaylistDialog = playlistTargetSong != null
 
         LaunchedEffect(playing, isScrubbing) {
             while (playing && !isScrubbing) {
@@ -377,6 +576,11 @@ class MainActivity : ComponentActivity() {
                         text = "Music",
                         style = MaterialTheme.typography.titleMedium,
                         color = textWarm
+                    ,
+                        modifier = Modifier
+                            .clickable {
+                                selectFolderLauncher.launch(null)
+                            }
                     )
                 }
 
@@ -408,12 +612,17 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(vertical = 12.dp)
-                                        .clickable {
-                                            mediaController.transportControls.playFromMediaId(
-                                                song.id,
-                                                null
-                                            )
-                                        },
+                                        .combinedClickable(
+                                            onClick = {
+                                                mediaController.transportControls.playFromMediaId(
+                                                    song.id,
+                                                    null
+                                                )
+                                            },
+                                            onLongClick = {
+                                                playlistTargetSong = song
+                                            }
+                                        ),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
@@ -513,7 +722,7 @@ class MainActivity : ComponentActivity() {
                                             )
                                             else -> QueueAndSleepPanel(
                                                 songs = songs,
-                                                currentId = currentId,
+                                                playlists = playlists,
                                                 textWarm = textWarm,
                                                 textMuted = textMuted,
                                                 accent = iconGlow
@@ -634,6 +843,32 @@ class MainActivity : ComponentActivity() {
                                     color = textWarm
                                 )
                             }
+
+                            val nextUpSong = remember(songs, currentId) {
+                                nextUpSong(songs, currentId)
+                            }
+                            if (nextUpSong != null) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Next up:",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = textMuted,
+                                        modifier = Modifier.padding(end = 6.dp)
+                                    )
+                                    Text(
+                                        text = nextUpSong.title,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = textWarm,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
                         }
 
                         val shuffleTint =
@@ -704,6 +939,83 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+
+                if (showPlaylistDialog) {
+                    AlertDialog(
+                        onDismissRequest = {
+                            playlistTargetSong = null
+                            newPlaylistName = ""
+                        },
+                        title = {
+                            Text(
+                                text = "Add to Playlist",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = textWarm
+                            )
+                        },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (playlists.isEmpty()) {
+                                    Text(
+                                        text = "No playlists yet.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = textMuted
+                                    )
+                                } else {
+                                    playlists.forEach { playlist ->
+                                        Button(
+                                            onClick = {
+                                                val song = playlistTargetSong
+                                                if (song != null) {
+                                                    addSongToPlaylist(playlist, song)
+                                                }
+                                                playlistTargetSong = null
+                                                newPlaylistName = ""
+                                            }
+                                        ) {
+                                            Text(text = playlist.name, color = textWarm)
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                OutlinedTextField(
+                                    value = newPlaylistName,
+                                    onValueChange = { newPlaylistName = it.take(24) },
+                                    label = { Text("New playlist", color = textMuted) },
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = iconGlow,
+                                        focusedLabelColor = iconGlow,
+                                        unfocusedBorderColor = textMuted,
+                                        unfocusedLabelColor = textMuted,
+                                        cursorColor = iconGlow
+                                    ),
+                                    singleLine = true
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            Button(onClick = {
+                                val name = newPlaylistName.trim()
+                                if (name.isNotEmpty()) {
+                                    createPlaylist(name, playlistTargetSong)
+                                }
+                                playlistTargetSong = null
+                                newPlaylistName = ""
+                            }) {
+                                Text("Create", color = textWarm)
+                            }
+                        },
+                        dismissButton = {
+                            Button(onClick = {
+                                playlistTargetSong = null
+                                newPlaylistName = ""
+                            }) {
+                                Text("Close", color = textWarm)
+                            }
+                        }
+                    )
+                }
             }
         }
     }
@@ -732,22 +1044,26 @@ class MainActivity : ComponentActivity() {
         startService(intent)
     }
 
+    private fun playPlaylist(playlist: Playlist, startId: String) {
+        val intent = Intent(this, MusicService::class.java).apply {
+            action = MusicService.ACTION_PLAY_PLAYLIST
+            putStringArrayListExtra(
+                MusicService.EXTRA_PLAYLIST_IDS,
+                ArrayList(playlist.songIds)
+            )
+            putExtra(MusicService.EXTRA_PLAYLIST_START_ID, startId)
+        }
+        startService(intent)
+    }
+
     @Composable
     private fun QueueAndSleepPanel(
         songs: List<Song>,
-        currentId: String?,
+        playlists: SnapshotStateList<Playlist>,
         textWarm: Color,
         textMuted: Color,
         accent: Color
     ) {
-        val currentIndex = songs.indexOfFirst { it.id == currentId }
-        val upNext = if (songs.isNotEmpty() && currentIndex >= 0) {
-            val tail = songs.drop(currentIndex + 1)
-            val head = songs.take(currentIndex)
-            tail + head
-        } else {
-            emptyList()
-        }
         var hoursText by rememberSaveable { mutableStateOf("") }
         var minutesText by rememberSaveable { mutableStateOf("") }
         var secondsText by rememberSaveable { mutableStateOf("") }
@@ -755,6 +1071,11 @@ class MainActivity : ComponentActivity() {
         var sleepRemainingMs by rememberSaveable { mutableStateOf(0L) }
         var sleepTargetElapsedMs by rememberSaveable { mutableStateOf<Long?>(null) }
         var timerRunning by rememberSaveable { mutableStateOf(false) }
+        var activePlaylistId by rememberSaveable { mutableStateOf<String?>(null) }
+        var showAddSongsDialog by rememberSaveable { mutableStateOf(false) }
+        var showCreatePlaylistDialog by rememberSaveable { mutableStateOf(false) }
+        var createPlaylistName by rememberSaveable { mutableStateOf("") }
+        val activePlaylist = playlists.firstOrNull { it.id == activePlaylistId }
 
         LaunchedEffect(sleepTargetElapsedMs, timerRunning) {
             if (sleepTargetElapsedMs == null || !timerRunning) return@LaunchedEffect
@@ -770,193 +1091,431 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        BackHandler(activePlaylist != null) {
+            activePlaylistId = null
+            showAddSongsDialog = false
+        }
+
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 12.dp)
         ) {
             item {
-                Text(
-                    text = "Up Next",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = textWarm,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-            }
-
-            if (upNext.isEmpty()) {
-                item {
+                Column {
                     Text(
-                        text = "No upcoming tracks",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = textMuted,
-                        modifier = Modifier.padding(bottom = 16.dp)
+                        text = "Sleep Timer",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = textWarm,
+                        modifier = Modifier.padding(bottom = 6.dp)
                     )
-                }
-            } else {
-                itemsIndexed(upNext) { index, song ->
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp)
-                            .clickable {
-                                mediaController.transportControls.playFromMediaId(song.id, null)
-                            },
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        Text(
-                            text = "${index + 1}. ${song.title}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = textWarm,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = formatTime(song.durationMs),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = textMuted,
-                            modifier = Modifier.padding(start = 8.dp)
-                        )
-                    }
-                }
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "Sleep Timer",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = textWarm,
-                    modifier = Modifier.padding(bottom = 6.dp)
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    Button(onClick = {
-                        val totalMs = 15 * 60_000L
-                        sleepTotalMs = totalMs
-                        sleepRemainingMs = totalMs
-                        sleepTargetElapsedMs = SystemClock.elapsedRealtime() + totalMs
-                        timerRunning = true
-                        startSleepTimer(totalMs, 10_000L)
-                    }) {
-                        Text("15m", color = textWarm)
-                    }
-                    Button(onClick = {
-                        val totalMs = 30 * 60_000L
-                        sleepTotalMs = totalMs
-                        sleepRemainingMs = totalMs
-                        sleepTargetElapsedMs = SystemClock.elapsedRealtime() + totalMs
-                        timerRunning = true
-                        startSleepTimer(totalMs, 10_000L)
-                    }) {
-                        Text("30m", color = textWarm)
-                    }
-                    Button(onClick = {
-                        val totalMs = 60 * 60_000L
-                        sleepTotalMs = totalMs
-                        sleepRemainingMs = totalMs
-                        sleepTargetElapsedMs = SystemClock.elapsedRealtime() + totalMs
-                        timerRunning = true
-                        startSleepTimer(totalMs, 10_000L)
-                    }) {
-                        Text("60m", color = textWarm)
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = hoursText,
-                        onValueChange = { hoursText = it.filter(Char::isDigit).take(2) },
-                        label = { Text("Hours", color = textMuted) },
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = accent,
-                            focusedLabelColor = accent,
-                            unfocusedBorderColor = textMuted,
-                            unfocusedLabelColor = textMuted,
-                            cursorColor = accent
-                        ),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = minutesText,
-                        onValueChange = { minutesText = it.filter(Char::isDigit).take(2) },
-                        label = { Text("Minutes", color = textMuted) },
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = accent,
-                            focusedLabelColor = accent,
-                            unfocusedBorderColor = textMuted,
-                            unfocusedLabelColor = textMuted,
-                            cursorColor = accent
-                        ),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = secondsText,
-                        onValueChange = { secondsText = it.filter(Char::isDigit).take(2) },
-                        label = { Text("Seconds", color = textMuted) },
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = accent,
-                            focusedLabelColor = accent,
-                            unfocusedBorderColor = textMuted,
-                            unfocusedLabelColor = textMuted,
-                            cursorColor = accent
-                        ),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Button(onClick = {
-                        val h = hoursText.toLongOrNull() ?: 0L
-                        val m = minutesText.toLongOrNull() ?: 0L
-                        val s = secondsText.toLongOrNull() ?: 0L
-                        val totalMs = (h * 3600 + m * 60 + s) * 1000L
-                        if (totalMs > 0L) {
+                        Button(onClick = {
+                            val totalMs = 15 * 60_000L
                             sleepTotalMs = totalMs
                             sleepRemainingMs = totalMs
                             sleepTargetElapsedMs = SystemClock.elapsedRealtime() + totalMs
                             timerRunning = true
                             startSleepTimer(totalMs, 10_000L)
+                        }) {
+                            Text("15m", color = textWarm)
                         }
-                    }) {
-                        Text("Start", color = textWarm)
+                        Button(onClick = {
+                            val totalMs = 30 * 60_000L
+                            sleepTotalMs = totalMs
+                            sleepRemainingMs = totalMs
+                            sleepTargetElapsedMs = SystemClock.elapsedRealtime() + totalMs
+                            timerRunning = true
+                            startSleepTimer(totalMs, 10_000L)
+                        }) {
+                            Text("30m", color = textWarm)
+                        }
+                        Button(onClick = {
+                            val totalMs = 60 * 60_000L
+                            sleepTotalMs = totalMs
+                            sleepRemainingMs = totalMs
+                            sleepTargetElapsedMs = SystemClock.elapsedRealtime() + totalMs
+                            timerRunning = true
+                            startSleepTimer(totalMs, 10_000L)
+                        }) {
+                            Text("60m", color = textWarm)
+                        }
                     }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = hoursText,
+                            onValueChange = { hoursText = it.filter(Char::isDigit).take(2) },
+                            label = { Text("Hours", color = textMuted) },
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = accent,
+                                focusedLabelColor = accent,
+                                unfocusedBorderColor = textMuted,
+                                unfocusedLabelColor = textMuted,
+                                cursorColor = accent
+                            ),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = minutesText,
+                            onValueChange = { minutesText = it.filter(Char::isDigit).take(2) },
+                            label = { Text("Minutes", color = textMuted) },
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = accent,
+                                focusedLabelColor = accent,
+                                unfocusedBorderColor = textMuted,
+                                unfocusedLabelColor = textMuted,
+                                cursorColor = accent
+                            ),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = secondsText,
+                            onValueChange = { secondsText = it.filter(Char::isDigit).take(2) },
+                            label = { Text("Seconds", color = textMuted) },
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = accent,
+                                focusedLabelColor = accent,
+                                unfocusedBorderColor = textMuted,
+                                unfocusedLabelColor = textMuted,
+                                cursorColor = accent
+                            ),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Button(onClick = {
+                            val h = hoursText.toLongOrNull() ?: 0L
+                            val m = minutesText.toLongOrNull() ?: 0L
+                            val s = secondsText.toLongOrNull() ?: 0L
+                            val totalMs = (h * 3600 + m * 60 + s) * 1000L
+                            if (totalMs > 0L) {
+                                sleepTotalMs = totalMs
+                                sleepRemainingMs = totalMs
+                                sleepTargetElapsedMs = SystemClock.elapsedRealtime() + totalMs
+                                timerRunning = true
+                                startSleepTimer(totalMs, 10_000L)
+                            }
+                        }) {
+                            Text("Start", color = textWarm)
+                        }
+                        Button(onClick = {
+                            cancelSleepTimer()
+                            timerRunning = false
+                            sleepTargetElapsedMs = null
+                            sleepRemainingMs = sleepTotalMs
+                        }) {
+                            Text("Cancel", color = textWarm)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    if (sleepTotalMs > 0L) {
+                        val remainingLabel = formatHms(sleepRemainingMs)
+                        Text(
+                            text = if (timerRunning) "Time left: $remainingLabel" else "Set time: $remainingLabel",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = textMuted
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Divider(color = textMuted.copy(alpha = 0.5f))
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+            }
+
+            if (activePlaylist != null) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = { activePlaylistId = null }) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "Back",
+                                tint = textWarm
+                            )
+                        }
+                        Text(
+                            text = activePlaylist.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = textWarm
+                        )
+                    }
+
+                    Button(
+                        onClick = { showAddSongsDialog = true },
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    ) {
+                        Text("Add songs", color = textWarm)
+                    }
+                }
+
+                val playlistSongs = activePlaylist.songIds.mapNotNull { id ->
+                    songs.firstOrNull { it.id == id }
+                }
+
+                if (playlistSongs.isEmpty()) {
+                    item {
+                        Text(
+                            text = "No songs in this playlist",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = textMuted
+                        )
+                    }
+                } else {
+                    itemsIndexed(playlistSongs) { _, song ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp)
+                                .clickable {
+                                    playPlaylist(activePlaylist, song.id)
+                                },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = song.title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = textWarm,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            IconButton(onClick = {
+                                activePlaylist.songIds.remove(song.id)
+                                savePlaylists()
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Remove",
+                                    tint = textMuted
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item { Spacer(modifier = Modifier.height(12.dp)) }
+
+            } else {
+                item {
+                    Text(
+                        text = "Playlists",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = textWarm,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { exportPlaylistsLauncher.launch("musicbox_playlists.json") },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Export", color = textWarm)
+                        }
+                        Button(
+                            onClick = { importPlaylistsLauncher.launch(arrayOf("application/json")) },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Import", color = textWarm)
+                        }
+                    }
+                    Button(
+                        onClick = { showCreatePlaylistDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                    ) {
+                        Text("New playlist", color = textWarm)
+                    }
+                }
+
+                if (playlists.isEmpty()) {
+                    item {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.PlaylistAdd,
+                                contentDescription = null,
+                                tint = textMuted,
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Long-press a song to create a playlist",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = textMuted
+                            )
+                        }
+                    }
+                } else {
+                    itemsIndexed(playlists) { _, playlist ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                                .clickable { activePlaylistId = playlist.id },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = playlist.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = textWarm,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "${playlist.songIds.size} songs",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = textMuted,
+                                modifier = Modifier.padding(end = 6.dp)
+                            )
+                            IconButton(onClick = {
+                                playlists.remove(playlist)
+                                savePlaylists()
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete playlist",
+                                    tint = textMuted
+                                )
+                            }
+                        }
+                        Divider(color = textMuted.copy(alpha = 0.3f))
+                    }
+                }
+
+            }
+        }
+
+        if (showAddSongsDialog && activePlaylist != null) {
+            val availableSongs = songs.filterNot { activePlaylist.songIds.contains(it.id) }
+            AlertDialog(
+                onDismissRequest = { showAddSongsDialog = false },
+                title = {
+                    Text(
+                        text = "Add to ${activePlaylist.name}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = textWarm
+                    )
+                },
+                text = {
+                    if (availableSongs.isEmpty()) {
+                        Text(
+                            text = "All songs already in playlist.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = textMuted
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.heightIn(max = 280.dp)
+                        ) {
+                            itemsIndexed(availableSongs) { _, song ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 6.dp)
+                                        .clickable {
+                                            addSongToPlaylist(activePlaylist, song)
+                                            showAddSongsDialog = false
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = song.title,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = textWarm,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = { showAddSongsDialog = false }) {
+                        Text("Close", color = textWarm)
+                    }
+                }
+            )
+        }
+
+        if (showCreatePlaylistDialog) {
+            AlertDialog(
+                onDismissRequest = { showCreatePlaylistDialog = false },
+                title = {
+                    Text(
+                        text = "Create Playlist",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = textWarm
+                    )
+                },
+                text = {
+                    OutlinedTextField(
+                        value = createPlaylistName,
+                        onValueChange = { createPlaylistName = it.take(24) },
+                        label = { Text("Name", color = textMuted) },
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = accent,
+                            focusedLabelColor = accent,
+                            unfocusedBorderColor = textMuted,
+                            unfocusedLabelColor = textMuted,
+                            cursorColor = accent
+                        ),
+                        singleLine = true
+                    )
+                },
+                confirmButton = {
                     Button(onClick = {
-                        cancelSleepTimer()
-                        timerRunning = false
-                        sleepTargetElapsedMs = null
-                        sleepRemainingMs = sleepTotalMs
+                        val name = createPlaylistName.trim()
+                        if (name.isNotEmpty()) {
+                            val created = createPlaylist(name, null)
+                            activePlaylistId = created.id
+                            showAddSongsDialog = true
+                        }
+                        createPlaylistName = ""
+                        showCreatePlaylistDialog = false
+                    }) {
+                        Text("Create", color = textWarm)
+                    }
+                },
+                dismissButton = {
+                    Button(onClick = {
+                        createPlaylistName = ""
+                        showCreatePlaylistDialog = false
                     }) {
                         Text("Cancel", color = textWarm)
                     }
                 }
-                Spacer(modifier = Modifier.height(6.dp))
-                if (sleepTotalMs > 0L) {
-                    val remainingLabel = formatHms(sleepRemainingMs)
-                    Text(
-                        text = if (timerRunning) "Time left: $remainingLabel" else "Set time: $remainingLabel",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = textMuted
-                    )
-                }
-            }
+            )
         }
     }
 
@@ -1269,5 +1828,37 @@ class MainActivity : ComponentActivity() {
         val minutes = (totalSeconds % 3600) / 60
         val seconds = totalSeconds % 60
         return String.format("%d:%02d:%02d", hours, minutes, seconds)
+    }
+
+    private fun nextUpSong(songs: List<Song>, currentId: String?): Song? {
+        if (songs.isEmpty()) return null
+        val currentIndex = songs.indexOfFirst { it.id == currentId }
+        val nextIndex = if (currentIndex >= 0) {
+            (currentIndex + 1) % songs.size
+        } else {
+            0
+        }
+        return songs.getOrNull(nextIndex)
+    }
+
+    private fun createPlaylist(name: String, initialSong: Song?): Playlist {
+        val playlist = Playlist(
+            id = "playlist_${playlistSequence++}",
+            name = name.trim(),
+            songIds = mutableStateListOf()
+        )
+        if (initialSong != null) {
+            playlist.songIds.add(initialSong.id)
+        }
+        playlists.add(playlist)
+        savePlaylists()
+        return playlist
+    }
+
+    private fun addSongToPlaylist(playlist: Playlist, song: Song) {
+        if (!playlist.songIds.contains(song.id)) {
+            playlist.songIds.add(song.id)
+            savePlaylists()
+        }
     }
 }

@@ -32,6 +32,9 @@ import com.google.android.exoplayer2.source.ShuffleOrder
 import android.os.Bundle
 import android.support.v4.media.MediaMetadataCompat
 
+import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
+import android.content.SharedPreferences
 
 
 class MusicService : Service() {
@@ -53,6 +56,11 @@ class MusicService : Service() {
 
     // Keep titles in parallel with playlist for notification text
     private var titles: List<String> = emptyList()
+    private var libraryItems: Map<String, MediaItem> = emptyMap()
+    private var libraryTitles: Map<String, String> = emptyMap()
+    private val prefs: SharedPreferences by lazy {
+        getSharedPreferences("music_prefs", MODE_PRIVATE)
+    }
 
     companion object {
         const val CHANNEL_ID = "monsterplayer_channel"
@@ -61,8 +69,11 @@ class MusicService : Service() {
         const val ACTION_RELOAD_LIBRARY = "com.example.myapplication.action.RELOAD_LIBRARY"
         const val ACTION_SET_SLEEP_TIMER = "com.example.myapplication.action.SET_SLEEP_TIMER"
         const val ACTION_CANCEL_SLEEP_TIMER = "com.example.myapplication.action.CANCEL_SLEEP_TIMER"
+        const val ACTION_PLAY_PLAYLIST = "com.example.myapplication.action.PLAY_PLAYLIST"
         const val EXTRA_SLEEP_MS = "extra_sleep_ms"
         const val EXTRA_FADE_MS = "extra_fade_ms"
+        const val EXTRA_PLAYLIST_IDS = "extra_playlist_ids"
+        const val EXTRA_PLAYLIST_START_ID = "extra_playlist_start_id"
         /**
          * Holds the session token once the service has created its MediaSession.
          * Activities can read this to construct a {@link MediaControllerCompat}.
@@ -93,6 +104,8 @@ class MusicService : Service() {
         // ✅ Load device songs (MediaStore) instead of raw
         val (items, itemTitles) = loadDevicePlaylist()
         titles = itemTitles
+        libraryItems = items.associateBy { it.mediaId }
+        libraryTitles = items.zip(itemTitles).associate { it.first.mediaId to it.second }
 
 
         if (items.isNotEmpty()) {
@@ -283,6 +296,12 @@ class MusicService : Service() {
             cancelSleepTimer()
             return START_STICKY
         }
+        if (intent?.action == ACTION_PLAY_PLAYLIST) {
+            val ids = intent.getStringArrayListExtra(EXTRA_PLAYLIST_IDS) ?: emptyList()
+            val startId = intent.getStringExtra(EXTRA_PLAYLIST_START_ID)
+            setPlaylistAndPlay(ids, startId)
+            return START_STICKY
+        }
 
         MediaButtonReceiver.handleIntent(session, intent)
         return START_STICKY
@@ -302,6 +321,10 @@ class MusicService : Service() {
     // Returns a pair of MediaItems and their titles.  The MediaItem is built with a mediaId that matches the
     // Song.id used by the activity.
     private fun loadDevicePlaylist(): Pair<List<MediaItem>, List<String>> {
+        val treeUri = prefs.getString("library_tree_uri", null)?.let { Uri.parse(it) }
+        if (treeUri != null) {
+            return loadTreePlaylist(treeUri)
+        }
         val permission =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
                 Manifest.permission.READ_MEDIA_AUDIO
@@ -342,6 +365,42 @@ class MusicService : Service() {
         }
 
         return items to titles
+    }
+
+    private fun loadTreePlaylist(treeUri: Uri): Pair<List<MediaItem>, List<String>> {
+        val root = DocumentFile.fromTreeUri(this, treeUri) ?: return emptyList<MediaItem>() to emptyList()
+        val stack = ArrayDeque<DocumentFile>()
+        val items = mutableListOf<MediaItem>()
+        val titles = mutableListOf<String>()
+        stack.add(root)
+        while (stack.isNotEmpty()) {
+            val doc = stack.removeFirst()
+            if (doc.isDirectory) {
+                doc.listFiles().forEach { stack.add(it) }
+            } else {
+                val name = doc.name ?: continue
+                val type = doc.type
+                val isAudio = type?.startsWith("audio/") == true ||
+                    name.endsWith(".mp3", true) ||
+                    name.endsWith(".m4a", true) ||
+                    name.endsWith(".flac", true) ||
+                    name.endsWith(".wav", true) ||
+                    name.endsWith(".ogg", true)
+                if (isAudio) {
+                    val title = name.substringBeforeLast('.')
+                    val uri = doc.uri
+                    items.add(
+                        MediaItem.Builder()
+                            .setMediaId(uri.toString())
+                            .setUri(uri)
+                            .build()
+                    )
+                    titles.add(title)
+                }
+            }
+        }
+        val combined = items.zip(titles).sortedBy { it.second.lowercase() }
+        return combined.map { it.first } to combined.map { it.second }
     }
 
     private fun setPlaybackState(isPlaying: Boolean) {
@@ -490,6 +549,8 @@ class MusicService : Service() {
         val currentPosition = player.currentPosition
         val (items, itemTitles) = loadDevicePlaylist()
         titles = itemTitles
+        libraryItems = items.associateBy { it.mediaId }
+        libraryTitles = items.zip(itemTitles).associate { it.first.mediaId to it.second }
         if (items.isEmpty()) {
             player.stop()
             updateSessionMetadata()
@@ -509,6 +570,24 @@ class MusicService : Service() {
         updateSessionMetadata()
         setPlaybackState(player.isPlaying)
         updateNotification(player.isPlaying)
+    }
+
+    private fun setPlaylistAndPlay(ids: List<String>, startId: String?) {
+        if (ids.isEmpty()) return
+        val items = ids.mapNotNull { libraryItems[it] }
+        if (items.isEmpty()) return
+        val titlesForPlaylist = ids.mapNotNull { libraryTitles[it] }
+        titles = titlesForPlaylist
+        val startIndex = startId?.let { ids.indexOf(it) }?.takeIf { it >= 0 } ?: 0
+        player.setMediaItems(items, startIndex, 0L)
+        player.prepare()
+        player.play()
+        if (player.shuffleModeEnabled) {
+            reshufflePlaylist()
+        }
+        updateSessionMetadata()
+        setPlaybackState(true)
+        updateNotification(true)
     }
 
     private fun reshufflePlaylist() {

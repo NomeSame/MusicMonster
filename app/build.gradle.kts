@@ -59,6 +59,7 @@ dependencies {
     implementation("com.google.android.exoplayer:exoplayer-core:2.18.1")
     // MediaSessionCompat for lock‑screen controls and background playback
     implementation("androidx.media:media:1.6.0")
+    implementation("androidx.documentfile:documentfile:1.0.1")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
