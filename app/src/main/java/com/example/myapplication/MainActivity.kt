@@ -10,6 +10,7 @@ import android.net.Uri
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -103,19 +104,13 @@ import java.io.OutputStreamWriter
  */
 class MainActivity : ComponentActivity() {
 
-    // ✅ Make songs observable by Compose
-    private var songs by mutableStateOf<List<Song>>(emptyList())
-    private val playlists = mutableStateListOf<Playlist>()
-    private var playlistSequence = 0
+    private val viewModel: MainViewModel by viewModels()
 
-    // Wraps the MediaController and exposes playback state as StateFlow.
-    private val playbackConnection = PlaybackConnection(this)
-    private val equalizerController = EqualizerController()
-    private var serviceStarted = false
-
-    private val prefs by lazy { getSharedPreferences("music_prefs", MODE_PRIVATE) }
-    private val playlistRepository by lazy { PlaylistRepository(prefs, contentResolver) }
-    private val songRepository by lazy { SongRepository(this, prefs) }
+    // Thin accessors so the Compose UI (still defined as Activity methods until
+    // the UI-decomposition step) keeps referring to these unqualified.
+    private val playbackConnection get() = viewModel.playbackConnection
+    private val equalizerController get() = viewModel.equalizerController
+    private val playlists get() = viewModel.playlists
 
     private val selectFolderLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -124,9 +119,9 @@ class MainActivity : ComponentActivity() {
             val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
                 Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
             contentResolver.takePersistableUriPermission(uri, flags)
-            prefs.edit().putString("library_tree_uri", uri.toString()).apply()
-            loadSongs()
-            startMusicService()
+            viewModel.saveLibraryTreeUri(uri)
+            viewModel.loadSongs()
+            viewModel.startMusicService()
         }
     }
 
@@ -134,7 +129,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
         if (uri != null) {
-            exportPlaylistsToUri(uri)
+            viewModel.exportPlaylists(uri)
         }
     }
 
@@ -142,7 +137,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            importPlaylistsFromUri(uri)
+            viewModel.importPlaylists(uri)
         }
     }
 
@@ -151,8 +146,8 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            loadSongs()
-            startMusicService()
+            viewModel.loadSongs()
+            viewModel.startMusicService()
         }
     }
 
@@ -191,7 +186,7 @@ class MainActivity : ComponentActivity() {
         requestAudioPermissionAndLoad()
         requestNotificationPermissionIfNeeded()
         requestRecordAudioPermissionIfNeeded()
-        loadPlaylists()
+        viewModel.loadPlaylists()
 
         setContent {
             MyApplicationTheme {
@@ -206,13 +201,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         // Initialize the MediaController once the service has created its session.
-        playbackConnection.onAudioSession = { id ->
-            equalizerController.audioSessionId.value = id
-            if (id != 0) {
-                equalizerController.setupForSession(id)
-            }
-        }
-        playbackConnection.connect { MusicService.sessionToken }
+        viewModel.connectPlayback()
     }
 
     override fun onResume() {
@@ -235,55 +224,21 @@ class MainActivity : ComponentActivity() {
         ) {
             requestPermissionLauncher.launch(permission)
         } else {
-            if (songs.isEmpty()) {
-                loadSongs()
+            if (viewModel.songs.value.isEmpty()) {
+                viewModel.loadSongs()
             }
             startMusicService()
         }
     }
 
-    private fun startMusicService() {
-        val intent = Intent(this, MusicService::class.java)
-        if (!serviceStarted) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent)
-            } else {
-                startService(intent)
-            }
-            serviceStarted = true
-        } else {
-            intent.action = MusicService.ACTION_RELOAD_LIBRARY
-            startService(intent)
-        }
-    }
-
-    private fun loadSongs() {
-        songs = songRepository.load()
-    }
-
-    private fun loadPlaylists() {
-        val loaded = playlistRepository.load() ?: return
-        playlists.clear()
-        playlists.addAll(loaded.playlists)
-        playlistSequence = loaded.nextSequence
-    }
-
-    private fun savePlaylists() {
-        playlistRepository.save(playlists)
-    }
-
-    private fun exportPlaylistsToUri(uri: Uri) {
-        playlistRepository.export(uri, playlists)
-    }
-
-    private fun importPlaylistsFromUri(uri: Uri) {
-        val newSequence = playlistRepository.importInto(uri, playlists, playlistSequence) ?: return
-        playlistSequence = newSequence
-        savePlaylists()
-    }
+    // Thin delegators kept so the Compose UI (defined below as Activity methods
+    // until UI decomposition) can call these unqualified.
+    private fun startMusicService() = viewModel.startMusicService()
+    private fun savePlaylists() = viewModel.savePlaylists()
 
     @Composable
     fun MainScreen() {
+        val songs = viewModel.songs.collectAsState().value
         val currentTitle = playbackConnection.nowPlayingTitle.collectAsState().value ?: "No song selected"
         val currentId = playbackConnection.nowPlayingId.collectAsState().value
         val playing = playbackConnection.isPlaying.collectAsState().value
@@ -808,34 +763,13 @@ class MainActivity : ComponentActivity() {
         return String.format("%d:%02d", minutes, seconds)
     }
 
-    private fun startSleepTimer(durationMs: Long, fadeMs: Long) {
-        if (durationMs <= 0L) return
-        val intent = Intent(this, MusicService::class.java).apply {
-            action = MusicService.ACTION_SET_SLEEP_TIMER
-            putExtra(MusicService.EXTRA_SLEEP_MS, durationMs)
-            putExtra(MusicService.EXTRA_FADE_MS, fadeMs)
-        }
-        startService(intent)
-    }
+    private fun startSleepTimer(durationMs: Long, fadeMs: Long) =
+        viewModel.startSleepTimer(durationMs, fadeMs)
 
-    private fun cancelSleepTimer() {
-        val intent = Intent(this, MusicService::class.java).apply {
-            action = MusicService.ACTION_CANCEL_SLEEP_TIMER
-        }
-        startService(intent)
-    }
+    private fun cancelSleepTimer() = viewModel.cancelSleepTimer()
 
-    private fun playPlaylist(playlist: Playlist, startId: String) {
-        val intent = Intent(this, MusicService::class.java).apply {
-            action = MusicService.ACTION_PLAY_PLAYLIST
-            putStringArrayListExtra(
-                MusicService.EXTRA_PLAYLIST_IDS,
-                ArrayList(playlist.songIds)
-            )
-            putExtra(MusicService.EXTRA_PLAYLIST_START_ID, startId)
-        }
-        startService(intent)
-    }
+    private fun playPlaylist(playlist: Playlist, startId: String) =
+        viewModel.playPlaylist(playlist, startId)
 
     @Composable
     private fun QueueAndSleepPanel(
@@ -1531,35 +1465,12 @@ class MainActivity : ComponentActivity() {
         return String.format("%d:%02d:%02d", hours, minutes, seconds)
     }
 
-    private fun nextUpSong(songs: List<Song>, currentId: String?): Song? {
-        if (songs.isEmpty()) return null
-        val currentIndex = songs.indexOfFirst { it.id == currentId }
-        val nextIndex = if (currentIndex >= 0) {
-            (currentIndex + 1) % songs.size
-        } else {
-            0
-        }
-        return songs.getOrNull(nextIndex)
-    }
+    private fun nextUpSong(songs: List<Song>, currentId: String?): Song? =
+        viewModel.nextUpSong(songs, currentId)
 
-    private fun createPlaylist(name: String, initialSong: Song?): Playlist {
-        val playlist = Playlist(
-            id = "playlist_${playlistSequence++}",
-            name = name.trim(),
-            songIds = mutableStateListOf()
-        )
-        if (initialSong != null) {
-            playlist.songIds.add(initialSong.id)
-        }
-        playlists.add(playlist)
-        savePlaylists()
-        return playlist
-    }
+    private fun createPlaylist(name: String, initialSong: Song?): Playlist =
+        viewModel.createPlaylist(name, initialSong)
 
-    private fun addSongToPlaylist(playlist: Playlist, song: Song) {
-        if (!playlist.songIds.contains(song.id)) {
-            playlist.songIds.add(song.id)
-            savePlaylists()
-        }
-    }
+    private fun addSongToPlaylist(playlist: Playlist, song: Song) =
+        viewModel.addSongToPlaylist(playlist, song)
 }
