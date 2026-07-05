@@ -81,6 +81,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
+import com.example.myapplication.model.Playlist
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.delay
 import androidx.documentfile.provider.DocumentFile
@@ -127,12 +128,6 @@ class MainActivity : ComponentActivity() {
     private var serviceStarted = false
 
     private val prefs by lazy { getSharedPreferences("music_prefs", MODE_PRIVATE) }
-
-    private class Playlist(
-        val id: String,
-        val name: String,
-        val songIds: SnapshotStateList<String>
-    )
 
     private val selectFolderLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
