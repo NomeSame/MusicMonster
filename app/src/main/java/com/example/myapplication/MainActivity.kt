@@ -82,6 +82,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
 import com.example.myapplication.data.PlaylistRepository
+import com.example.myapplication.data.SongRepository
 import com.example.myapplication.model.Playlist
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.delay
@@ -130,6 +131,7 @@ class MainActivity : ComponentActivity() {
 
     private val prefs by lazy { getSharedPreferences("music_prefs", MODE_PRIVATE) }
     private val playlistRepository by lazy { PlaylistRepository(prefs, contentResolver) }
+    private val songRepository by lazy { SongRepository(this, prefs) }
 
     private val selectFolderLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -265,76 +267,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadSongs() {
-        val treeUri = prefs.getString("library_tree_uri", null)?.let { Uri.parse(it) }
-        if (treeUri != null) {
-            songs = loadSongsFromTree(treeUri)
-            return
-        }
-        val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-        val projection = arrayOf(
-            MediaStore.Audio.Media._ID,
-            MediaStore.Audio.Media.TITLE,
-            MediaStore.Audio.Media.DURATION
-        )
-        val selection = "${MediaStore.Audio.Media.IS_MUSIC}!=0"
-        val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
-
-        val list = mutableListOf<Song>()
-
-        contentResolver.query(collection, projection, selection, null, sortOrder)?.use { c ->
-            val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-            val titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-            val durationCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-
-            while (c.moveToNext()) {
-                val idLong = c.getLong(idCol)
-                val title = c.getString(titleCol) ?: "Unknown"
-                val durationMs = c.getLong(durationCol)
-
-                val contentUri = ContentUris.withAppendedId(collection, idLong)
-
-                list.add(
-                    Song(
-                        id = idLong.toString(),
-                        title = title,
-                        uri = contentUri,
-                        durationMs = durationMs
-                    )
-                )
-            }
-        }
-
-        songs = list
-    }
-
-    private fun loadSongsFromTree(treeUri: Uri): List<Song> {
-        val root = DocumentFile.fromTreeUri(this, treeUri) ?: return emptyList()
-        val list = mutableListOf<Song>()
-        val stack = ArrayDeque<DocumentFile>()
-        stack.add(root)
-        while (stack.isNotEmpty()) {
-            val doc = stack.removeFirst()
-            if (doc.isDirectory) {
-                doc.listFiles().forEach { stack.add(it) }
-            } else {
-                val name = doc.name ?: "Unknown"
-                val type = doc.type
-                if (type?.startsWith("audio/") == true || name.endsWith(".mp3", true)
-                    || name.endsWith(".m4a", true) || name.endsWith(".flac", true)
-                    || name.endsWith(".wav", true) || name.endsWith(".ogg", true)
-                ) {
-                    list.add(
-                        Song(
-                            id = doc.uri.toString(),
-                            title = name.substringBeforeLast('.'),
-                            uri = doc.uri,
-                            durationMs = 0L
-                        )
-                    )
-                }
-            }
-        }
-        return list.sortedBy { it.title.lowercase() }
+        songs = songRepository.load()
     }
 
     private fun loadPlaylists() {
