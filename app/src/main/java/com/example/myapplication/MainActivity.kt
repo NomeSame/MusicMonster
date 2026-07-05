@@ -81,6 +81,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
+import com.example.myapplication.data.PlaylistRepository
 import com.example.myapplication.model.Playlist
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.delay
@@ -128,6 +129,7 @@ class MainActivity : ComponentActivity() {
     private var serviceStarted = false
 
     private val prefs by lazy { getSharedPreferences("music_prefs", MODE_PRIVATE) }
+    private val playlistRepository by lazy { PlaylistRepository(prefs, contentResolver) }
 
     private val selectFolderLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -336,109 +338,23 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadPlaylists() {
-        val raw = prefs.getString("playlists_json", null) ?: return
-        val parsed = mutableListOf<Playlist>()
-        try {
-            val array = JSONArray(raw)
-            for (i in 0 until array.length()) {
-                val obj = array.getJSONObject(i)
-                val id = obj.optString("id")
-                val name = obj.optString("name")
-                if (id.isBlank() || name.isBlank()) continue
-                val songsJson = obj.optJSONArray("songs") ?: JSONArray()
-                val songIds = mutableStateListOf<String>()
-                for (s in 0 until songsJson.length()) {
-                    val songId = songsJson.optString(s)
-                    if (songId.isNotBlank()) {
-                        songIds.add(songId)
-                    }
-                }
-                parsed.add(Playlist(id = id, name = name, songIds = songIds))
-            }
-        } catch (_: Throwable) {
-            return
-        }
+        val loaded = playlistRepository.load() ?: return
         playlists.clear()
-        playlists.addAll(parsed)
-        playlistSequence = parsed.mapNotNull {
-            it.id.removePrefix("playlist_").toIntOrNull()
-        }.maxOrNull()?.plus(1) ?: 0
+        playlists.addAll(loaded.playlists)
+        playlistSequence = loaded.nextSequence
     }
 
     private fun savePlaylists() {
-        val array = JSONArray()
-        playlists.forEach { playlist ->
-            val obj = JSONObject()
-            obj.put("id", playlist.id)
-            obj.put("name", playlist.name)
-            val songsArray = JSONArray()
-            playlist.songIds.forEach { songsArray.put(it) }
-            obj.put("songs", songsArray)
-            array.put(obj)
-        }
-        prefs.edit().putString("playlists_json", array.toString()).apply()
+        playlistRepository.save(playlists)
     }
 
     private fun exportPlaylistsToUri(uri: Uri) {
-        val array = JSONArray()
-        playlists.forEach { playlist ->
-            val obj = JSONObject()
-            obj.put("id", playlist.id)
-            obj.put("name", playlist.name)
-            val songsArray = JSONArray()
-            playlist.songIds.forEach { songsArray.put(it) }
-            obj.put("songs", songsArray)
-            array.put(obj)
-        }
-        contentResolver.openOutputStream(uri)?.use { output ->
-            OutputStreamWriter(output).use { writer ->
-                writer.write(array.toString(2))
-            }
-        }
+        playlistRepository.export(uri, playlists)
     }
 
     private fun importPlaylistsFromUri(uri: Uri) {
-        val raw = contentResolver.openInputStream(uri)?.use { input ->
-            BufferedReader(InputStreamReader(input)).readText()
-        } ?: return
-        try {
-            val array = JSONArray(raw)
-            for (i in 0 until array.length()) {
-                val obj = array.getJSONObject(i)
-                val id = obj.optString("id")
-                val name = obj.optString("name")
-                if (name.isBlank()) continue
-                val songsJson = obj.optJSONArray("songs") ?: JSONArray()
-                val songIds = mutableListOf<String>()
-                for (s in 0 until songsJson.length()) {
-                    val songId = songsJson.optString(s)
-                    if (songId.isNotBlank()) {
-                        songIds.add(songId)
-                    }
-                }
-                val existing = playlists.firstOrNull { it.id == id || it.name.equals(name, true) }
-                if (existing != null) {
-                    songIds.forEach { songId ->
-                        if (!existing.songIds.contains(songId)) {
-                            existing.songIds.add(songId)
-                        }
-                    }
-                } else {
-                    val playlistId = if (id.isBlank()) "playlist_${playlistSequence++}" else id
-                    val merged = Playlist(
-                        id = playlistId,
-                        name = name,
-                        songIds = mutableStateListOf<String>().apply { addAll(songIds.distinct()) }
-                    )
-                    playlists.add(merged)
-                }
-            }
-        } catch (_: Throwable) {
-            return
-        }
-        playlistSequence = playlists.mapNotNull {
-            it.id.removePrefix("playlist_").toIntOrNull()
-        }.maxOrNull()?.plus(1) ?: playlistSequence
+        val newSequence = playlistRepository.importInto(uri, playlists, playlistSequence) ?: return
+        playlistSequence = newSequence
         savePlaylists()
     }
 
