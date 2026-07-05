@@ -13,3 +13,9 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Windows WSL metadata
+*:Zone.Identifier
+
+# Kotlin build cache
+.kotlin/
