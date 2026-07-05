@@ -85,6 +85,7 @@ import com.example.myapplication.audio.EqualizerController
 import com.example.myapplication.data.PlaylistRepository
 import com.example.myapplication.data.SongRepository
 import com.example.myapplication.model.Playlist
+import com.example.myapplication.playback.PlaybackConnection
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.delay
 import androidx.documentfile.provider.DocumentFile
@@ -107,18 +108,9 @@ class MainActivity : ComponentActivity() {
     private val playlists = mutableStateListOf<Playlist>()
     private var playlistSequence = 0
 
-    // MediaController for interacting with the foreground service.
-    private lateinit var mediaController: MediaControllerCompat
-
-    // Compose state that reflects current playback status and title.
-    private val nowPlayingTitle = mutableStateOf<String?>(null)
-    private val nowPlayingId = mutableStateOf<String?>(null)
-    private val isPlaying = mutableStateOf(false)
-    private val isShuffled = mutableStateOf(false)
-    private val playbackPositionMs = mutableStateOf(0L)
-    private val playbackDurationMs = mutableStateOf(0L)
+    // Wraps the MediaController and exposes playback state as StateFlow.
+    private val playbackConnection = PlaybackConnection(this)
     private val equalizerController = EqualizerController()
-    private var controllerReady by mutableStateOf(false)
     private var serviceStarted = false
 
     private val prefs by lazy { getSharedPreferences("music_prefs", MODE_PRIVATE) }
@@ -203,6 +195,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MyApplicationTheme {
+                val controllerReady by playbackConnection.isReady.collectAsState()
                 if (controllerReady) {
                     MainScreen()
                 } else {
@@ -213,7 +206,13 @@ class MainActivity : ComponentActivity() {
             }
         }
         // Initialize the MediaController once the service has created its session.
-        initMediaController()
+        playbackConnection.onAudioSession = { id ->
+            equalizerController.audioSessionId.value = id
+            if (id != 0) {
+                equalizerController.setupForSession(id)
+            }
+        }
+        playbackConnection.connect { MusicService.sessionToken }
     }
 
     override fun onResume() {
@@ -283,83 +282,18 @@ class MainActivity : ComponentActivity() {
         savePlaylists()
     }
 
-    /**
-     * Sets up a {@link MediaControllerCompat} to communicate with the foreground
-     * music service. The controller is only created once the service has exposed its
-     * session token.
-     */
-    private fun initMediaController() {
-        // Use a Handler to poll for the session token until it becomes available.
-        val handler = Handler(Looper.getMainLooper())
-
-        val checkToken = object : Runnable {
-            override fun run() {
-                val token = MusicService.sessionToken
-                if (token != null) {
-                    mediaController = MediaControllerCompat(this@MainActivity, token)
-
-                    mediaController.registerCallback(object : MediaControllerCompat.Callback() {
-                        override fun onPlaybackStateChanged(state: PlaybackStateCompat?) {
-                            isPlaying.value = state?.state == PlaybackStateCompat.STATE_PLAYING
-                            playbackPositionMs.value = state?.position ?: 0L
-                        }
-
-                        override fun onMetadataChanged(metadata: MediaMetadataCompat?) {
-                            nowPlayingTitle.value =
-                                metadata?.getString(MediaMetadataCompat.METADATA_KEY_TITLE)
-                            nowPlayingId.value =
-                                metadata?.getString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID)
-                            playbackDurationMs.value =
-                                metadata?.getLong(MediaMetadataCompat.METADATA_KEY_DURATION) ?: 0L
-                        }
-
-                        override fun onShuffleModeChanged(shuffleMode: Int) {
-                            isShuffled.value = shuffleMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
-                        }
-
-                        override fun onExtrasChanged(extras: Bundle?) {
-                            val id = extras?.getInt("audio_session_id") ?: 0
-                            if (id != 0) {
-                                equalizerController.audioSessionId.value = id
-                                equalizerController.setupForSession(id)
-                            }
-                        }
-                    })
-
-                    isShuffled.value = mediaController.shuffleMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
-                    nowPlayingTitle.value = mediaController.metadata
-                        ?.getString(MediaMetadataCompat.METADATA_KEY_TITLE)
-                    nowPlayingId.value = mediaController.metadata
-                        ?.getString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID)
-                    playbackDurationMs.value = mediaController.metadata
-                        ?.getLong(MediaMetadataCompat.METADATA_KEY_DURATION) ?: 0L
-                    playbackPositionMs.value = mediaController.playbackState?.position ?: 0L
-                    equalizerController.audioSessionId.value = mediaController.extras?.getInt("audio_session_id") ?: 0
-                    if (equalizerController.audioSessionId.value != 0) {
-                        equalizerController.setupForSession(equalizerController.audioSessionId.value)
-                    }
-                    controllerReady = true // ✅ put this here (triggers recomposition)
-                } else {
-                    handler.postDelayed(this, 500)
-                }
-            }
-        }
-        handler.post(checkToken)
-
-    }
-
     @Composable
     fun MainScreen() {
-        val currentTitle = nowPlayingTitle.value ?: "No song selected"
-        val currentId = nowPlayingId.value
-        val playing = isPlaying.value
-        val shuffled = isShuffled.value
+        val currentTitle = playbackConnection.nowPlayingTitle.collectAsState().value ?: "No song selected"
+        val currentId = playbackConnection.nowPlayingId.collectAsState().value
+        val playing = playbackConnection.isPlaying.collectAsState().value
+        val shuffled = playbackConnection.isShuffled.collectAsState().value
         var expanded by rememberSaveable { mutableStateOf(false) }
         val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
         var isScrubbing by rememberSaveable { mutableStateOf(false) }
         var scrubPositionMs by rememberSaveable { mutableStateOf(0L) }
-        val durationMs = playbackDurationMs.value
-        val positionMs = playbackPositionMs.value
+        val durationMs = playbackConnection.duration.collectAsState().value
+        val positionMs = playbackConnection.position.collectAsState().value
         val effectivePosition = if (isScrubbing) scrubPositionMs else positionMs
         var playlistTargetSong by remember { mutableStateOf<Song?>(null) }
         var newPlaylistName by rememberSaveable { mutableStateOf("") }
@@ -367,7 +301,7 @@ class MainActivity : ComponentActivity() {
 
         LaunchedEffect(playing, isScrubbing) {
             while (playing && !isScrubbing) {
-                playbackPositionMs.value = mediaController.playbackState?.position ?: 0L
+                playbackConnection.refreshPosition()
                 delay(1000L)
             }
         }
@@ -453,10 +387,7 @@ class MainActivity : ComponentActivity() {
                                         .padding(vertical = 12.dp)
                                         .combinedClickable(
                                             onClick = {
-                                                mediaController.transportControls.playFromMediaId(
-                                                    song.id,
-                                                    null
-                                                )
+                                                playbackConnection.playFromMediaId(song.id)
                                             },
                                             onLongClick = {
                                                 playlistTargetSong = song
@@ -667,7 +598,7 @@ class MainActivity : ComponentActivity() {
                                     scrubPositionMs = (durationMs * value).toLong()
                                 },
                                 onValueChangeFinished = {
-                                    mediaController.transportControls.seekTo(scrubPositionMs)
+                                    playbackConnection.seekTo(scrubPositionMs)
                                     isScrubbing = false
                                 },
                                 colors = SliderDefaults.colors(
@@ -735,7 +666,7 @@ class MainActivity : ComponentActivity() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             IconButton(onClick = {
-                                mediaController.transportControls.skipToPrevious()
+                                playbackConnection.skipToPrevious()
                             }) {
                                 Icon(
                                     Icons.Default.SkipPrevious,
@@ -746,15 +677,12 @@ class MainActivity : ComponentActivity() {
 
                             IconButton(onClick = {
                                 if (playing) {
-                                    mediaController.transportControls.pause()
+                                    playbackConnection.pause()
                                 } else {
                                     if (currentId == null && songs.isNotEmpty()) {
-                                        mediaController.transportControls.playFromMediaId(
-                                            songs.first().id,
-                                            null
-                                        )
+                                        playbackConnection.playFromMediaId(songs.first().id)
                                     } else {
-                                        mediaController.transportControls.play()
+                                        playbackConnection.play()
                                     }
                                 }
                             }) {
@@ -766,7 +694,7 @@ class MainActivity : ComponentActivity() {
                             }
 
                             IconButton(onClick = {
-                                mediaController.transportControls.skipToNext()
+                                playbackConnection.skipToNext()
                             }) {
                                 Icon(
                                     Icons.Default.SkipNext,
@@ -781,7 +709,7 @@ class MainActivity : ComponentActivity() {
                                 } else {
                                     PlaybackStateCompat.SHUFFLE_MODE_ALL
                                 }
-                                mediaController.transportControls.setShuffleMode(newMode)
+                                playbackConnection.setShuffleMode(newMode)
                             }) {
                                 Icon(
                                     imageVector = Icons.Default.Shuffle,
