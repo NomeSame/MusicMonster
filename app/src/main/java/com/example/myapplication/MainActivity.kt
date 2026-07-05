@@ -81,6 +81,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
+import com.example.myapplication.audio.EqualizerController
 import com.example.myapplication.data.PlaylistRepository
 import com.example.myapplication.data.SongRepository
 import com.example.myapplication.model.Playlist
@@ -116,16 +117,7 @@ class MainActivity : ComponentActivity() {
     private val isShuffled = mutableStateOf(false)
     private val playbackPositionMs = mutableStateOf(0L)
     private val playbackDurationMs = mutableStateOf(0L)
-    private val audioSessionId = mutableStateOf(0)
-    private val eqEnabled = mutableStateOf(true)
-    private val eqBandLevels = mutableStateListOf<Int>()
-    private val eqBandCount = mutableStateOf(0)
-    private val eqBandHz = mutableStateListOf<Int>()
-    private var equalizer: Equalizer? = null
-    private var bassBoost: BassBoost? = null
-    private val bassBoostEnabled = mutableStateOf(false)
-    private val bassBoostStrength = mutableStateOf(600)
-    private val eqPresetLabel = mutableStateOf("Flat")
+    private val equalizerController = EqualizerController()
     private var controllerReady by mutableStateOf(false)
     private var serviceStarted = false
 
@@ -328,8 +320,8 @@ class MainActivity : ComponentActivity() {
                         override fun onExtrasChanged(extras: Bundle?) {
                             val id = extras?.getInt("audio_session_id") ?: 0
                             if (id != 0) {
-                                audioSessionId.value = id
-                                setupEqualizerForSession(id)
+                                equalizerController.audioSessionId.value = id
+                                equalizerController.setupForSession(id)
                             }
                         }
                     })
@@ -342,9 +334,9 @@ class MainActivity : ComponentActivity() {
                     playbackDurationMs.value = mediaController.metadata
                         ?.getLong(MediaMetadataCompat.METADATA_KEY_DURATION) ?: 0L
                     playbackPositionMs.value = mediaController.playbackState?.position ?: 0L
-                    audioSessionId.value = mediaController.extras?.getInt("audio_session_id") ?: 0
-                    if (audioSessionId.value != 0) {
-                        setupEqualizerForSession(audioSessionId.value)
+                    equalizerController.audioSessionId.value = mediaController.extras?.getInt("audio_session_id") ?: 0
+                    if (equalizerController.audioSessionId.value != 0) {
+                        equalizerController.setupForSession(equalizerController.audioSessionId.value)
                     }
                     controllerReady = true // ✅ put this here (triggers recomposition)
                 } else {
@@ -542,26 +534,26 @@ class MainActivity : ComponentActivity() {
                                     ) { page ->
                                         when (page) {
                                             0 -> EqualizerPanel(
-                                                audioSessionId = audioSessionId.value,
+                                                audioSessionId = equalizerController.audioSessionId.value,
                                                 textWarm = textWarm,
                                                 textMuted = textMuted,
                                                 accent = iconGlow,
-                                                eqEnabled = eqEnabled.value,
-                                                onEqEnabledChanged = { eqEnabled.value = it },
-                                                eqBandLevels = eqBandLevels,
-                                                eqBandCount = eqBandCount,
-                                                bassBoostEnabled = bassBoostEnabled.value,
-                                                onBassBoostEnabled = { bassBoostEnabled.value = it },
-                                                bassBoostStrength = bassBoostStrength.value,
-                                                onBassBoostStrength = { bassBoostStrength.value = it },
-                                                presetLabel = eqPresetLabel.value,
+                                                eqEnabled = equalizerController.eqEnabled.value,
+                                                onEqEnabledChanged = { equalizerController.eqEnabled.value = it },
+                                                eqBandLevels = equalizerController.eqBandLevels,
+                                                eqBandCount = equalizerController.eqBandCount,
+                                                bassBoostEnabled = equalizerController.bassBoostEnabled.value,
+                                                onBassBoostEnabled = { equalizerController.bassBoostEnabled.value = it },
+                                                bassBoostStrength = equalizerController.bassBoostStrength.value,
+                                                onBassBoostStrength = { equalizerController.bassBoostStrength.value = it },
+                                                presetLabel = equalizerController.eqPresetLabel.value,
                                                 onPresetSelected = { label, levels ->
-                                                    eqPresetLabel.value = label
+                                                    equalizerController.eqPresetLabel.value = label
                                                     if (levels.isNotEmpty()) {
-                                                        eqBandLevels.clear()
-                                                        eqBandLevels.addAll(levels)
-                                                        eqBandCount.value = levels.size
-                                                        val eq = equalizer
+                                                        equalizerController.eqBandLevels.clear()
+                                                        equalizerController.eqBandLevels.addAll(levels)
+                                                        equalizerController.eqBandCount.value = levels.size
+                                                        val eq = equalizerController.equalizer
                                                         if (eq != null) {
                                                             val range = eq.bandLevelRange
                                                             for (bandIndex in levels.indices) {
@@ -577,7 +569,7 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             )
                                             1 -> VisualizerPanel(
-                                                audioSessionId = audioSessionId.value,
+                                                audioSessionId = equalizerController.audioSessionId.value,
                                                 textWarm = textWarm,
                                                 accent = iconGlow
                                             )
@@ -1380,86 +1372,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun buildPresetLevels(label: String, equalizer: Equalizer): List<Int> {
-        val bandCount = equalizer.numberOfBands.toInt()
-        val range = equalizer.bandLevelRange
-        val minLevel = range[0].toInt()
-        val maxLevel = range[1].toInt()
-        val boost = (maxLevel * 0.75f).toInt()
-        val mid = (maxLevel * 0.35f).toInt()
-        val cut = (minLevel * 0.6f).toInt()
-
-        val curve = when (label.lowercase()) {
-            "metal" -> listOf(boost, mid, 0, mid, boost)
-            "rock" -> listOf(mid, boost, mid, boost, mid)
-            "classic" -> listOf(cut, 0, mid, mid, cut)
-            "pop" -> listOf(0, mid, boost, mid, 0)
-            "flat" -> listOf(0, 0, 0, 0, 0)
-            else -> listOf(0, 0, 0, 0, 0)
-        }
-
-        if (equalizer.numberOfPresets > 0) {
-            for (i in 0 until equalizer.numberOfPresets) {
-                val preset = i.toShort()
-                val name = equalizer.getPresetName(preset).lowercase()
-                if (name.contains(label.lowercase())) {
-                    equalizer.usePreset(preset)
-                    return List(bandCount) { bandIndex ->
-                        equalizer.getBandLevel(bandIndex.toShort()).toInt()
-                    }
-                }
-            }
-        }
-
-        return List(bandCount) { bandIndex ->
-            val idx = (bandIndex.toFloat() / (bandCount - 1).coerceAtLeast(1)).times(4).toInt()
-                .coerceIn(0, 4)
-            curve[idx].coerceIn(minLevel, maxLevel)
-        }
-    }
-
-    private fun setupEqualizerForSession(sessionId: Int) {
-        equalizer?.release()
-        equalizer = null
-        bassBoost?.release()
-        bassBoost = null
-        if (sessionId == 0) return
-        try {
-            val eq = Equalizer(0, sessionId)
-            eq.enabled = eqEnabled.value
-            val bandCount = eq.numberOfBands.toInt()
-            val range = eq.bandLevelRange
-            if (eqBandLevels.size != bandCount || eqBandCount.value != bandCount) {
-                eqBandLevels.clear()
-                eqBandHz.clear()
-                repeat(bandCount) { bandIndex ->
-                    val band = bandIndex.toShort()
-                    eqBandLevels.add(eq.getBandLevel(band).toInt())
-                    eqBandHz.add((eq.getCenterFreq(band) / 1000).toInt())
-                }
-                eqBandCount.value = bandCount
-            } else {
-                for (bandIndex in 0 until bandCount) {
-                    val band = bandIndex.toShort()
-                    val level = eqBandLevels[bandIndex]
-                    eq.setBandLevel(band, level.toShort().coerceIn(range[0], range[1]))
-                }
-            }
-            equalizer = eq
-        } catch (_: Throwable) {
-            equalizer = null
-        }
-
-        try {
-            val bb = BassBoost(0, sessionId)
-            bb.enabled = bassBoostEnabled.value
-            bb.setStrength(bassBoostStrength.value.toShort())
-            bassBoost = bb
-        } catch (_: Throwable) {
-            bassBoost = null
-        }
-    }
-
     @Composable
     private fun VisualizerPanel(
         audioSessionId: Int,
@@ -1510,7 +1422,7 @@ class MainActivity : ComponentActivity() {
         presetLabel: String,
         onPresetSelected: (String, List<Int>) -> Unit
     ) {
-        val equalizer = equalizer
+        val equalizer = equalizerController.equalizer
 
         Column(
             modifier = Modifier
@@ -1573,7 +1485,7 @@ class MainActivity : ComponentActivity() {
                     presets.take(3).forEach { label ->
                         Button(
                             modifier = Modifier.weight(1f),
-                            onClick = { onPresetSelected(label, buildPresetLevels(label, equalizer)) }
+                            onClick = { onPresetSelected(label, equalizerController.buildPresetLevels(label, equalizer)) }
                         ) {
                             Text(text = label, color = textWarm)
                         }
@@ -1586,7 +1498,7 @@ class MainActivity : ComponentActivity() {
                     presets.drop(3).forEach { label ->
                         Button(
                             modifier = Modifier.weight(1f),
-                            onClick = { onPresetSelected(label, buildPresetLevels(label, equalizer)) }
+                            onClick = { onPresetSelected(label, equalizerController.buildPresetLevels(label, equalizer)) }
                         ) {
                             Text(text = label, color = textWarm)
                         }
@@ -1611,7 +1523,7 @@ class MainActivity : ComponentActivity() {
                     checked = bassBoostEnabled,
                     onCheckedChange = {
                         onBassBoostEnabled(it)
-                        bassBoost?.enabled = it
+                        equalizerController.bassBoost?.enabled = it
                     },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = accent,
@@ -1627,7 +1539,7 @@ class MainActivity : ComponentActivity() {
                 onValueChange = { newValue ->
                     val value = newValue.toInt()
                     onBassBoostStrength(value)
-                    bassBoost?.setStrength(value.toShort())
+                    equalizerController.bassBoost?.setStrength(value.toShort())
                 },
                 colors = SliderDefaults.colors(
                     thumbColor = accent,
@@ -1656,7 +1568,7 @@ class MainActivity : ComponentActivity() {
 
             repeat(bandCount) { bandIndex ->
                 val band = bandIndex.toShort()
-                val centerHz = eqBandHz.getOrNull(bandIndex) ?: (equalizer.getCenterFreq(band) / 1000).toInt()
+                val centerHz = equalizerController.eqBandHz.getOrNull(bandIndex) ?: (equalizer.getCenterFreq(band) / 1000).toInt()
                 val level = eqBandLevels[bandIndex]
 
                 Text(
