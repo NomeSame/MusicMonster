@@ -88,6 +88,7 @@ import com.example.myapplication.data.SongRepository
 import com.example.myapplication.model.Playlist
 import com.example.myapplication.playback.PlaybackConnection
 import com.example.myapplication.ui.components.SongRow
+import com.example.myapplication.ui.components.TransportControls
 import com.example.myapplication.ui.screens.EqualizerPanel
 import com.example.myapplication.ui.screens.VisualizerPanel
 import com.example.myapplication.ui.theme.MyApplicationTheme
@@ -591,27 +592,14 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        val shuffleTint =
-                            if (shuffled) panelGlow else textMuted
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(onClick = {
-                                playbackConnection.skipToPrevious()
-                            }) {
-                                Icon(
-                                    Icons.Default.SkipPrevious,
-                                    contentDescription = "Previous",
-                                    tint = iconGlow
-                                )
-                            }
-
-                            IconButton(onClick = {
+                        TransportControls(
+                            isPlaying = playing,
+                            isShuffled = shuffled,
+                            accent = iconGlow,
+                            shuffleActiveColor = panelGlow,
+                            shuffleInactiveColor = textMuted,
+                            onPrevious = { playbackConnection.skipToPrevious() },
+                            onPlayPause = {
                                 if (playing) {
                                     playbackConnection.pause()
                                 } else {
@@ -621,39 +609,17 @@ class MainActivity : ComponentActivity() {
                                         playbackConnection.play()
                                     }
                                 }
-                            }) {
-                                Icon(
-                                    if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = "Play/Pause",
-                                    tint = iconGlow
-                                )
-                            }
-
-                            IconButton(onClick = {
-                                playbackConnection.skipToNext()
-                            }) {
-                                Icon(
-                                    Icons.Default.SkipNext,
-                                    contentDescription = "Next",
-                                    tint = iconGlow
-                                )
-                            }
-
-                            IconButton(onClick = {
+                            },
+                            onNext = { playbackConnection.skipToNext() },
+                            onToggleShuffle = {
                                 val newMode = if (shuffled) {
                                     PlaybackStateCompat.SHUFFLE_MODE_NONE
                                 } else {
                                     PlaybackStateCompat.SHUFFLE_MODE_ALL
                                 }
                                 playbackConnection.setShuffleMode(newMode)
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Default.Shuffle,
-                                    tint = shuffleTint,
-                                    contentDescription = "Shuffle"
-                                )
                             }
-                        }
+                        )
                     }
                 }
 
