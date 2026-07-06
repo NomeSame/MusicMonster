@@ -87,6 +87,8 @@ import com.example.myapplication.data.PlaylistRepository
 import com.example.myapplication.data.SongRepository
 import com.example.myapplication.model.Playlist
 import com.example.myapplication.playback.PlaybackConnection
+import com.example.myapplication.ui.components.PlaylistRow
+import com.example.myapplication.ui.components.PlaylistSongRow
 import com.example.myapplication.ui.components.SongRow
 import com.example.myapplication.ui.components.TransportControls
 import com.example.myapplication.ui.screens.EqualizerPanel
@@ -797,34 +799,16 @@ class MainActivity : ComponentActivity() {
                     }
                 } else {
                     itemsIndexed(playlistSongs) { _, song ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 6.dp)
-                                .clickable {
-                                    playPlaylist(activePlaylist, song.id)
-                                },
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = song.title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = textWarm,
-                                modifier = Modifier.weight(1f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            IconButton(onClick = {
+                        PlaylistSongRow(
+                            title = song.title,
+                            textWarm = textWarm,
+                            textMuted = textMuted,
+                            onPlay = { playPlaylist(activePlaylist, song.id) },
+                            onRemove = {
                                 activePlaylist.songIds.remove(song.id)
                                 savePlaylists()
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = "Remove",
-                                    tint = textMuted
-                                )
                             }
-                        }
+                        )
                     }
                 }
 
@@ -886,38 +870,17 @@ class MainActivity : ComponentActivity() {
                     }
                 } else {
                     itemsIndexed(playlists) { _, playlist ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp)
-                                .clickable { activePlaylistId = playlist.id },
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = playlist.name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = textWarm,
-                                modifier = Modifier.weight(1f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = "${playlist.songIds.size} songs",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = textMuted,
-                                modifier = Modifier.padding(end = 6.dp)
-                            )
-                            IconButton(onClick = {
+                        PlaylistRow(
+                            name = playlist.name,
+                            songCount = playlist.songIds.size,
+                            textWarm = textWarm,
+                            textMuted = textMuted,
+                            onOpen = { activePlaylistId = playlist.id },
+                            onDelete = {
                                 playlists.remove(playlist)
                                 savePlaylists()
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = "Delete playlist",
-                                    tint = textMuted
-                                )
                             }
-                        }
+                        )
                         Divider(color = textMuted.copy(alpha = 0.3f))
                     }
                 }
