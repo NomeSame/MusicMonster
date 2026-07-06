@@ -87,6 +87,7 @@ import com.example.myapplication.data.PlaylistRepository
 import com.example.myapplication.data.SongRepository
 import com.example.myapplication.model.Playlist
 import com.example.myapplication.playback.PlaybackConnection
+import com.example.myapplication.ui.screens.VisualizerPanel
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.delay
 import androidx.documentfile.provider.DocumentFile
@@ -1230,39 +1231,6 @@ class MainActivity : ComponentActivity() {
                         Text("Cancel", color = textWarm)
                     }
                 }
-            )
-        }
-    }
-
-    @Composable
-    private fun VisualizerPanel(
-        audioSessionId: Int,
-        textWarm: Color,
-        accent: Color
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = "Visualizer",
-                style = MaterialTheme.typography.titleMedium,
-                color = textWarm,
-                modifier = Modifier.padding(bottom = 12.dp)
-            )
-            androidx.compose.ui.viewinterop.AndroidView(
-                factory = { context ->
-                    CircularVisualizerView(context).apply {
-                        setVisualizerColor(accent)
-                    }
-                },
-                update = { view ->
-                    view.setAudioSessionId(audioSessionId)
-                },
-                modifier = Modifier
-                    .size(220.dp)
-                    .padding(12.dp)
             )
         }
     }
