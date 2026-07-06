@@ -87,6 +87,7 @@ import com.example.myapplication.data.PlaylistRepository
 import com.example.myapplication.data.SongRepository
 import com.example.myapplication.model.Playlist
 import com.example.myapplication.playback.PlaybackConnection
+import com.example.myapplication.ui.screens.EqualizerPanel
 import com.example.myapplication.ui.screens.VisualizerPanel
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.delay
@@ -425,15 +426,21 @@ class MainActivity : ComponentActivity() {
                                                 textWarm = textWarm,
                                                 textMuted = textMuted,
                                                 accent = iconGlow,
+                                                equalizer = equalizerController.equalizer,
+                                                bassBoost = equalizerController.bassBoost,
                                                 eqEnabled = equalizerController.eqEnabled.value,
                                                 onEqEnabledChanged = { equalizerController.eqEnabled.value = it },
                                                 eqBandLevels = equalizerController.eqBandLevels,
                                                 eqBandCount = equalizerController.eqBandCount,
+                                                eqBandHz = equalizerController.eqBandHz,
                                                 bassBoostEnabled = equalizerController.bassBoostEnabled.value,
                                                 onBassBoostEnabled = { equalizerController.bassBoostEnabled.value = it },
                                                 bassBoostStrength = equalizerController.bassBoostStrength.value,
                                                 onBassBoostStrength = { equalizerController.bassBoostStrength.value = it },
                                                 presetLabel = equalizerController.eqPresetLabel.value,
+                                                buildPresetLevels = { label, eq ->
+                                                    equalizerController.buildPresetLevels(label, eq)
+                                                },
                                                 onPresetSelected = { label, levels ->
                                                     equalizerController.eqPresetLabel.value = label
                                                     if (levels.isNotEmpty()) {
@@ -1235,195 +1242,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @Composable
-    private fun EqualizerPanel(
-        audioSessionId: Int,
-        textWarm: Color,
-        textMuted: Color,
-        accent: Color,
-        eqEnabled: Boolean,
-        onEqEnabledChanged: (Boolean) -> Unit,
-        eqBandLevels: MutableList<Int>,
-        eqBandCount: MutableState<Int>,
-        bassBoostEnabled: Boolean,
-        onBassBoostEnabled: (Boolean) -> Unit,
-        bassBoostStrength: Int,
-        onBassBoostStrength: (Int) -> Unit,
-        presetLabel: String,
-        onPresetSelected: (String, List<Int>) -> Unit
-    ) {
-        val equalizer = equalizerController.equalizer
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 8.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.Top
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "Equalizer",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = textWarm
-                )
-                Switch(
-                    checked = eqEnabled,
-                    onCheckedChange = {
-                        onEqEnabledChanged(it)
-                        equalizer?.enabled = it
-                    },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = accent,
-                        checkedTrackColor = accent.copy(alpha = 0.5f),
-                        uncheckedThumbColor = textMuted,
-                        uncheckedTrackColor = textMuted.copy(alpha = 0.4f)
-                    )
-                )
-            }
-
-            if (equalizer == null) {
-                Text(
-                    text = "Audio session not ready",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = textMuted
-                )
-                return
-            }
-
-            Text(
-                text = "Presets: $presetLabel",
-                style = MaterialTheme.typography.labelMedium,
-                color = textMuted,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-            val presets = listOf("Metal", "Rock", "Classic", "Flat", "Pop")
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    presets.take(3).forEach { label ->
-                        Button(
-                            modifier = Modifier.weight(1f),
-                            onClick = { onPresetSelected(label, equalizerController.buildPresetLevels(label, equalizer)) }
-                        ) {
-                            Text(text = label, color = textWarm)
-                        }
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    presets.drop(3).forEach { label ->
-                        Button(
-                            modifier = Modifier.weight(1f),
-                            onClick = { onPresetSelected(label, equalizerController.buildPresetLevels(label, equalizer)) }
-                        ) {
-                            Text(text = label, color = textWarm)
-                        }
-                    }
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "Bass Boost",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = textWarm
-                )
-                Switch(
-                    checked = bassBoostEnabled,
-                    onCheckedChange = {
-                        onBassBoostEnabled(it)
-                        equalizerController.bassBoost?.enabled = it
-                    },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = accent,
-                        checkedTrackColor = accent.copy(alpha = 0.5f),
-                        uncheckedThumbColor = textMuted,
-                        uncheckedTrackColor = textMuted.copy(alpha = 0.4f)
-                    )
-                )
-            }
-            Slider(
-                value = bassBoostStrength.toFloat(),
-                valueRange = 0f..1000f,
-                onValueChange = { newValue ->
-                    val value = newValue.toInt()
-                    onBassBoostStrength(value)
-                    equalizerController.bassBoost?.setStrength(value.toShort())
-                },
-                colors = SliderDefaults.colors(
-                    thumbColor = accent,
-                    activeTrackColor = accent,
-                    inactiveTrackColor = textMuted
-                )
-            )
-
-            val bandCount = equalizer.numberOfBands.toInt()
-            val range = equalizer.bandLevelRange
-            val minLevel = range[0].toInt()
-            val maxLevel = range[1].toInt()
-            if (eqBandCount.value != bandCount || eqBandLevels.size != bandCount) {
-                eqBandLevels.clear()
-                repeat(bandCount) { bandIndex ->
-                    val band = bandIndex.toShort()
-                    eqBandLevels.add(equalizer.getBandLevel(band).toInt())
-                }
-                eqBandCount.value = bandCount
-            } else {
-                for (bandIndex in 0 until bandCount) {
-                    val band = bandIndex.toShort()
-                    equalizer.setBandLevel(band, eqBandLevels[bandIndex].toShort())
-                }
-            }
-
-            repeat(bandCount) { bandIndex ->
-                val band = bandIndex.toShort()
-                val centerHz = equalizerController.eqBandHz.getOrNull(bandIndex) ?: (equalizer.getCenterFreq(band) / 1000).toInt()
-                val level = eqBandLevels[bandIndex]
-
-                Text(
-                    text = "${centerHz} Hz",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = textWarm,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
-                Slider(
-                    value = level.toFloat(),
-                    valueRange = minLevel.toFloat()..maxLevel.toFloat(),
-                    onValueChange = { newValue ->
-                        val newLevel = newValue.toInt()
-                        eqBandLevels[bandIndex] = newLevel
-                        equalizer.setBandLevel(band, newLevel.toShort())
-                    },
-                    colors = SliderDefaults.colors(
-                        thumbColor = accent,
-                        activeTrackColor = accent,
-                        inactiveTrackColor = textMuted
-                    )
-                )
-            }
-        }
-    }
 
     private fun formatHms(timeMs: Long): String {
         val totalSeconds = (timeMs / 1000).coerceAtLeast(0)
