@@ -87,6 +87,7 @@ import com.example.myapplication.data.PlaylistRepository
 import com.example.myapplication.data.SongRepository
 import com.example.myapplication.model.Playlist
 import com.example.myapplication.playback.PlaybackConnection
+import com.example.myapplication.ui.components.SongRow
 import com.example.myapplication.ui.screens.EqualizerPanel
 import com.example.myapplication.ui.screens.VisualizerPanel
 import com.example.myapplication.ui.theme.MyApplicationTheme
@@ -337,44 +338,16 @@ class MainActivity : ComponentActivity() {
                             contentPadding = PaddingValues(bottom = 16.dp)
                         ) {
                             itemsIndexed(songs) { index, song ->
-                                val isCurrent = song.id == currentId
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 12.dp)
-                                        .combinedClickable(
-                                            onClick = {
-                                                playbackConnection.playFromMediaId(song.id)
-                                            },
-                                            onLongClick = {
-                                                playlistTargetSong = song
-                                            }
-                                        ),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.MusicNote,
-                                        contentDescription = null,
-                                        tint = if (isCurrent) iconGlow else textMuted,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(
-                                        text = song.title,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = if (isCurrent) textWarm else textMuted,
-                                        fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
-                                        modifier = Modifier.weight(1f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = formatTime(song.durationMs),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = if (isCurrent) iconGlow else textMuted,
-                                        modifier = Modifier.padding(start = 8.dp)
-                                    )
-                                }
+                                SongRow(
+                                    title = song.title,
+                                    durationLabel = formatTime(song.durationMs),
+                                    isCurrent = song.id == currentId,
+                                    textWarm = textWarm,
+                                    textMuted = textMuted,
+                                    accent = iconGlow,
+                                    onClick = { playbackConnection.playFromMediaId(song.id) },
+                                    onLongClick = { playlistTargetSong = song }
+                                )
 
                                 if (index < songs.lastIndex) {
                                     Divider(color = dividerWarm)
