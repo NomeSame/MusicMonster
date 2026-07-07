@@ -72,6 +72,7 @@ class MusicService : Service() {
         const val ACTION_SET_SLEEP_TIMER = "com.example.myapplication.action.SET_SLEEP_TIMER"
         const val ACTION_CANCEL_SLEEP_TIMER = "com.example.myapplication.action.CANCEL_SLEEP_TIMER"
         const val ACTION_PLAY_PLAYLIST = "com.example.myapplication.action.PLAY_PLAYLIST"
+        const val ACTION_REFRESH_NOTIFICATION = "com.example.myapplication.action.REFRESH_NOTIFICATION"
         const val EXTRA_SLEEP_MS = "extra_sleep_ms"
         const val EXTRA_FADE_MS = "extra_fade_ms"
         const val EXTRA_PLAYLIST_IDS = "extra_playlist_ids"
@@ -305,6 +306,10 @@ class MusicService : Service() {
             cancelSleepTimer()
             return START_STICKY
         }
+        if (intent?.action == ACTION_REFRESH_NOTIFICATION) {
+            updateNotification(player.isPlaying)
+            return START_STICKY
+        }
         if (intent?.action == ACTION_PLAY_PLAYLIST) {
             val ids = intent.getStringArrayListExtra(EXTRA_PLAYLIST_IDS) ?: emptyList()
             val startId = intent.getStringExtra(EXTRA_PLAYLIST_START_ID)
@@ -450,7 +455,12 @@ class MusicService : Service() {
         )
     }
 
+    private fun accentColorInt(): Int =
+        getSharedPreferences("music_prefs", MODE_PRIVATE)
+            .getInt("accent_color", Color.parseColor("#E58B3C"))
+
     private fun buildNotification(isPlaying: Boolean): Notification {
+        val accentInt = accentColorInt()
         val playPauseIcon = if (isPlaying) {
             android.R.drawable.ic_media_pause
         } else {
@@ -499,6 +509,8 @@ class MusicService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
             .setOngoing(isPlaying)
+            .setColor(accentInt)
+            .setColorized(true)
             .addAction(android.R.drawable.ic_media_previous, "Previous", pendingIntentPrev)
             .addAction(playPauseIcon, if (isPlaying) "Pause" else "Play", pendingIntentPlayPause)
             .addAction(android.R.drawable.ic_media_next, "Next", pendingIntentNext)
@@ -522,8 +534,8 @@ class MusicService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
             .setOngoing(isPlaying)
-            .setColor(Color.parseColor("#E58B3C"))
-            .setColorized(false)
+            .setColor(accentInt)
+            .setColorized(true)
             .addAction(android.R.drawable.ic_media_previous, "Previous", pendingIntentPrev)
             .addAction(playPauseIcon, if (isPlaying) "Pause" else "Play", pendingIntentPlayPause)
             .addAction(android.R.drawable.ic_media_next, "Next", pendingIntentNext)
