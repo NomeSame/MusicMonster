@@ -6,12 +6,15 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.AndroidViewModel
 import com.example.myapplication.audio.EqualizerController
 import com.example.myapplication.data.PlaylistRepository
 import com.example.myapplication.data.SongRepository
 import com.example.myapplication.model.Playlist
 import com.example.myapplication.playback.PlaybackConnection
+import com.example.myapplication.ui.theme.DefaultAccent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,6 +44,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var serviceStarted = false
     private var connected = false
+
+    // User-selectable accent color, persisted as an ARGB int in prefs.
+    private val _accentColor = MutableStateFlow(
+        Color(prefs.getInt("accent_color", DefaultAccent.toArgb()))
+    )
+    val accentColor: StateFlow<Color> = _accentColor.asStateFlow()
+
+    fun setAccentColor(color: Color) {
+        prefs.edit().putInt("accent_color", color.toArgb()).apply()
+        _accentColor.value = color
+    }
 
     /** Wires the equalizer to audio-session changes and starts the controller. */
     fun connectPlayback() {

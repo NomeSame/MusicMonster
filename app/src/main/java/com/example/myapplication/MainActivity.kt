@@ -105,7 +105,8 @@ class MainActivity : ComponentActivity() {
         viewModel.loadPlaylists()
 
         setContent {
-            MyApplicationTheme {
+            val accent by viewModel.accentColor.collectAsState()
+            MyApplicationTheme(accent = accent) {
                 val controllerReady by viewModel.playbackConnection.isReady.collectAsState()
                 if (controllerReady) {
                     PlayerScreen(
