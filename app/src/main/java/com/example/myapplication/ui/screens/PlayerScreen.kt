@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
@@ -62,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import com.example.myapplication.MainViewModel
 import com.example.myapplication.R
 import com.example.myapplication.Song
+import com.example.myapplication.ui.components.AccentPickerDialog
 import com.example.myapplication.ui.components.SongRow
 import com.example.myapplication.ui.components.TransportControls
 import com.example.myapplication.ui.theme.LocalAppColors
@@ -79,7 +81,8 @@ fun PlayerScreen(
     viewModel: MainViewModel,
     onPickFolder: () -> Unit,
     onExport: () -> Unit,
-    onImport: () -> Unit
+    onImport: () -> Unit,
+    onAccentChange: (Color) -> Unit
 ) {
     val playbackConnection = viewModel.playbackConnection
     val equalizerController = viewModel.equalizerController
@@ -100,6 +103,7 @@ fun PlayerScreen(
     var playlistTargetSong by remember { mutableStateOf<Song?>(null) }
     var newPlaylistName by rememberSaveable { mutableStateOf("") }
     val showPlaylistDialog = playlistTargetSong != null
+    var showAccentPicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(playing, isScrubbing) {
         while (playing && !isScrubbing) {
@@ -129,12 +133,26 @@ fun PlayerScreen(
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            Text(
-                text = "Music Monster",
-                style = MaterialTheme.typography.headlineMedium,
-                color = textWarm,
-                modifier = Modifier.padding(bottom = 12.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Music Monster",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = textWarm,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = { showAccentPicker = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Palette,
+                        contentDescription = "Accent color",
+                        tint = iconGlow
+                    )
+                }
+            }
 
             Box(
                 modifier = Modifier
@@ -549,6 +567,14 @@ fun PlayerScreen(
                             Text("Close", color = textWarm)
                         }
                     }
+                )
+            }
+
+            if (showAccentPicker) {
+                AccentPickerDialog(
+                    current = appColors.accent,
+                    onAccentChange = onAccentChange,
+                    onDismiss = { showAccentPicker = false }
                 )
             }
         }

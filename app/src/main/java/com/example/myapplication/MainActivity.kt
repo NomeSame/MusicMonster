@@ -113,7 +113,8 @@ class MainActivity : ComponentActivity() {
                         viewModel = viewModel,
                         onPickFolder = { selectFolderLauncher.launch(null) },
                         onExport = { exportPlaylistsLauncher.launch("musicbox_playlists.json") },
-                        onImport = { importPlaylistsLauncher.launch(arrayOf("application/json")) }
+                        onImport = { importPlaylistsLauncher.launch(arrayOf("application/json")) },
+                        onAccentChange = { viewModel.setAccentColor(it) }
                     )
                 } else {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
