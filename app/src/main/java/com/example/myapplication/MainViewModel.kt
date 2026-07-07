@@ -54,6 +54,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setAccentColor(color: Color) {
         prefs.edit().putInt("accent_color", color.toArgb()).apply()
         _accentColor.value = color
+        // Re-tint the media notification / lock screen if the service is running.
+        if (serviceStarted) {
+            app.startService(
+                Intent(app, MusicService::class.java)
+                    .setAction(MusicService.ACTION_REFRESH_NOTIFICATION)
+            )
+        }
     }
 
     /** Wires the equalizer to audio-session changes and starts the controller. */
