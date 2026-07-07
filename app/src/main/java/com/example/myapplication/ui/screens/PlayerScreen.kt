@@ -64,6 +64,7 @@ import com.example.myapplication.R
 import com.example.myapplication.Song
 import com.example.myapplication.ui.components.SongRow
 import com.example.myapplication.ui.components.TransportControls
+import com.example.myapplication.ui.theme.LocalAppColors
 import kotlinx.coroutines.delay
 
 /**
@@ -107,20 +108,15 @@ fun PlayerScreen(
         }
     }
 
-    val backgroundBrush = Brush.verticalGradient(
-        colors = listOf(
-            Color(0xFF120C09),
-            Color(0xFF1B120E),
-            Color(0xFF2A1B13)
-        )
-    )
-    val panelColor = Color(0xFF2A1A14)
-    val panelBorder = Color(0xFF4B2C1F)
-    val panelGlow = Color(0xFFB86A2C)
-    val textWarm = Color(0xFFE6C7A1)
-    val textMuted = Color(0xFFB08A63)
-    val iconGlow = Color(0xFFFFB14A)
-    val dividerWarm = Color(0xFF3C2419)
+    val appColors = LocalAppColors.current
+    val backgroundBrush = Brush.verticalGradient(appColors.backgroundGradient)
+    val panelColor = appColors.panel
+    val panelBorder = appColors.panelBorder
+    val panelGlow = appColors.accentSoft
+    val textWarm = appColors.textPrimary
+    val textMuted = appColors.textMuted
+    val iconGlow = appColors.accent
+    val dividerWarm = appColors.divider
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
