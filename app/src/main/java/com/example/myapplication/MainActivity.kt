@@ -71,10 +71,6 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { }
 
-    private val requestRecordAudioPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
-
     private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         val granted = ActivityCompat.checkSelfPermission(
@@ -86,22 +82,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun requestRecordAudioPermissionIfNeeded() {
-        val granted = ActivityCompat.checkSelfPermission(
-            this,
-            Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
-        if (!granted) {
-            requestRecordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         requestAudioPermissionAndLoad()
         requestNotificationPermissionIfNeeded()
-        requestRecordAudioPermissionIfNeeded()
         viewModel.loadPlaylists()
 
         setContent {
@@ -149,8 +134,9 @@ class MainActivity : ComponentActivity() {
         } else {
             if (viewModel.songs.value.isEmpty()) {
                 viewModel.loadSongs()
+                // Only start/reload service on first load — not on rotation
+                viewModel.startMusicService()
             }
-            viewModel.startMusicService()
         }
     }
 

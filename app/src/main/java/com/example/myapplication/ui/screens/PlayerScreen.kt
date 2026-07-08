@@ -1,11 +1,7 @@
 package com.example.myapplication.ui.screens
 
 import android.support.v4.media.session.PlaybackStateCompat
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.Image
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,19 +11,22 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -53,29 +52,21 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.MainViewModel
-import com.example.myapplication.R
 import com.example.myapplication.Song
 import com.example.myapplication.ui.components.AccentPickerDialog
+import com.example.myapplication.ui.components.FastScroller
 import com.example.myapplication.ui.components.SongRow
 import com.example.myapplication.ui.components.TransportControls
 import com.example.myapplication.ui.theme.LocalAppColors
 import kotlinx.coroutines.delay
 
-/**
- * The main player screen: library list, expandable EQ/visualizer/queue pager,
- * now-playing card with seekbar and transport controls, and the add-to-playlist
- * dialog. Screen-level composable: reads state from [viewModel] and reaches the
- * Activity for the three system-picker actions via [onPickFolder]/[onExport]/
- * [onImport]. Leaf UI is delegated to the stateless components/screens.
- */
 @Composable
 fun PlayerScreen(
     viewModel: MainViewModel,
@@ -87,14 +78,12 @@ fun PlayerScreen(
     val playbackConnection = viewModel.playbackConnection
     val equalizerController = viewModel.equalizerController
     val playlists = viewModel.playlists
-
     val songs = viewModel.songs.collectAsState().value
     val currentTitle = playbackConnection.nowPlayingTitle.collectAsState().value ?: "No song selected"
     val currentId = playbackConnection.nowPlayingId.collectAsState().value
     val playing = playbackConnection.isPlaying.collectAsState().value
     val shuffled = playbackConnection.isShuffled.collectAsState().value
     var expanded by rememberSaveable { mutableStateOf(false) }
-    val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
     var isScrubbing by rememberSaveable { mutableStateOf(false) }
     var scrubPositionMs by rememberSaveable { mutableStateOf(0L) }
     val durationMs = playbackConnection.duration.collectAsState().value
@@ -104,11 +93,24 @@ fun PlayerScreen(
     var newPlaylistName by rememberSaveable { mutableStateOf("") }
     val showPlaylistDialog = playlistTargetSong != null
     var showAccentPicker by remember { mutableStateOf(false) }
+    val swipePagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
+    val listState = rememberLazyListState()
 
     LaunchedEffect(playing, isScrubbing) {
         while (playing && !isScrubbing) {
             playbackConnection.refreshPosition()
             delay(1000L)
+        }
+    }
+
+    // On first open, scroll the list to the restored/current song so it doesn't
+    // sit at the top after the app was fully closed and reopened.
+    var didInitialScroll by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(currentId, songs) {
+        if (!didInitialScroll && currentId != null && songs.isNotEmpty()) {
+            val idx = songs.indexOfFirst { it.id == currentId }
+            if (idx >= 0) listState.scrollToItem(idx)
+            didInitialScroll = true
         }
     }
 
@@ -134,9 +136,7 @@ fun PlayerScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
@@ -154,18 +154,22 @@ fun PlayerScreen(
                 }
             }
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                contentAlignment = Alignment.Center
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Icon(
+                    imageVector = Icons.Default.Folder,
+                    contentDescription = "Open folder",
+                    tint = iconGlow,
+                    modifier = Modifier.clickable { onPickFolder() }.padding(end = 8.dp)
+                )
                 Text(
                     text = "Music",
                     style = MaterialTheme.typography.titleMedium,
                     color = textWarm,
-                    modifier = Modifier
-                        .clickable { onPickFolder() }
+                    modifier = Modifier.clickable { onPickFolder() }
                 )
             }
 
@@ -173,189 +177,168 @@ fun PlayerScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
+                    .clipToBounds()
             ) {
-                if (songs.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "No songs found on this device",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = textMuted
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 16.dp)
-                    ) {
-                        itemsIndexed(songs) { index, song ->
-                            SongRow(
-                                title = song.title,
-                                durationLabel = formatTime(song.durationMs),
-                                isCurrent = song.id == currentId,
+                // BEHIND: the 3 swipe-screens (Sleep · Equalizer · Playlists),
+                // revealed when the song list is pulled down. Only this region
+                // is horizontally swipeable.
+                Column(modifier = Modifier.fillMaxSize().background(backgroundBrush)) {
+                    HorizontalPager(
+                        state = swipePagerState,
+                        modifier = Modifier.weight(1f).fillMaxWidth()
+                    ) { page ->
+                        when (page) {
+                            0 -> PlaylistScreen(
+                                songs = songs,
+                                playlists = playlists,
                                 textWarm = textWarm,
                                 textMuted = textMuted,
                                 accent = iconGlow,
-                                onClick = { playbackConnection.playFromMediaId(song.id) },
-                                onLongClick = { playlistTargetSong = song }
+                                onPlayPlaylist = { playlist, startId ->
+                                    viewModel.playPlaylist(playlist, startId)
+                                },
+                                onSavePlaylists = { viewModel.savePlaylists() },
+                                onCreatePlaylist = { name, initial ->
+                                    viewModel.createPlaylist(name, initial)
+                                },
+                                onAddSongToPlaylist = { playlist, song ->
+                                    viewModel.addSongToPlaylist(playlist, song)
+                                },
+                                onExport = onExport,
+                                onImport = onImport
                             )
-
-                            if (index < songs.lastIndex) {
-                                Divider(color = dividerWarm)
-                            }
-                        }
-                    }
-                }
-
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = expanded,
-                    enter = fadeIn() + slideInVertically { it / 3 },
-                    exit = fadeOut() + slideOutVertically { it / 3 }
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                if (pagerState.currentPage == 1) {
-                                    Color.Transparent
-                                } else {
-                                    Color(0xFF1B110C).copy(alpha = 0.95f)
-                                }
-                            )
-                    ) {
-                        if (pagerState.currentPage == 1) {
-                            Image(
-                                painter = painterResource(id = R.drawable.background_screen2),
-                                contentDescription = null,
-                                contentScale = ContentScale.FillBounds,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                HorizontalPager(
-                                    state = pagerState,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .weight(1f)
-                                ) { page ->
-                                    when (page) {
-                                        0 -> EqualizerPanel(
-                                            audioSessionId = equalizerController.audioSessionId.value,
-                                            textWarm = textWarm,
-                                            textMuted = textMuted,
-                                            accent = iconGlow,
-                                            equalizer = equalizerController.equalizer,
-                                            bassBoost = equalizerController.bassBoost,
-                                            eqEnabled = equalizerController.eqEnabled.value,
-                                            onEqEnabledChanged = { equalizerController.eqEnabled.value = it },
-                                            eqBandLevels = equalizerController.eqBandLevels,
-                                            eqBandCount = equalizerController.eqBandCount,
-                                            eqBandHz = equalizerController.eqBandHz,
-                                            bassBoostEnabled = equalizerController.bassBoostEnabled.value,
-                                            onBassBoostEnabled = { equalizerController.bassBoostEnabled.value = it },
-                                            bassBoostStrength = equalizerController.bassBoostStrength.value,
-                                            onBassBoostStrength = { equalizerController.bassBoostStrength.value = it },
-                                            presetLabel = equalizerController.eqPresetLabel.value,
-                                            buildPresetLevels = { label, eq ->
-                                                equalizerController.buildPresetLevels(label, eq)
-                                            },
-                                            onPresetSelected = { label, levels ->
-                                                equalizerController.eqPresetLabel.value = label
-                                                if (levels.isNotEmpty()) {
-                                                    equalizerController.eqBandLevels.clear()
-                                                    equalizerController.eqBandLevels.addAll(levels)
-                                                    equalizerController.eqBandCount.value = levels.size
-                                                    val eq = equalizerController.equalizer
-                                                    if (eq != null) {
-                                                        val range = eq.bandLevelRange
-                                                        for (bandIndex in levels.indices) {
-                                                            val band = bandIndex.toShort()
-                                                            val level = levels[bandIndex].toShort()
-                                                            eq.setBandLevel(
-                                                                band,
-                                                                level.coerceIn(range[0], range[1])
-                                                            )
-                                                        }
+                            1 -> Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                                EqualizerPanel(
+                                        audioSessionId = equalizerController.audioSessionId.value,
+                                        textWarm = textWarm,
+                                        textMuted = textMuted,
+                                        accent = iconGlow,
+                                        equalizer = equalizerController.equalizer,
+                                        bassBoost = equalizerController.bassBoost,
+                                        eqEnabled = equalizerController.eqEnabled.value,
+                                        onEqEnabledChanged = { equalizerController.eqEnabled.value = it },
+                                        eqBandLevels = equalizerController.eqBandLevels,
+                                        eqBandCount = equalizerController.eqBandCount,
+                                        eqBandHz = equalizerController.eqBandHz,
+                                        bassBoostEnabled = equalizerController.bassBoostEnabled.value,
+                                        onBassBoostEnabled = { equalizerController.bassBoostEnabled.value = it },
+                                        bassBoostStrength = equalizerController.bassBoostStrength.value,
+                                        onBassBoostStrength = { equalizerController.bassBoostStrength.value = it },
+                                        presetLabel = equalizerController.eqPresetLabel.value,
+                                        buildPresetLevels = { label, eq ->
+                                            equalizerController.buildPresetLevels(label, eq)
+                                        },
+                                        onPresetSelected = { label, levels ->
+                                            equalizerController.eqPresetLabel.value = label
+                                            if (levels.isNotEmpty()) {
+                                                equalizerController.eqBandLevels.clear()
+                                                equalizerController.eqBandLevels.addAll(levels)
+                                                equalizerController.eqBandCount.value = levels.size
+                                                val eq = equalizerController.equalizer
+                                                if (eq != null) {
+                                                    val range = eq.bandLevelRange
+                                                    for (bandIndex in levels.indices) {
+                                                        val band = bandIndex.toShort()
+                                                        val level = levels[bandIndex].toShort()
+                                                        eq.setBandLevel(band, level.coerceIn(range[0], range[1]))
                                                     }
                                                 }
                                             }
-                                        )
-                                        1 -> VisualizerPanel(
-                                            audioSessionId = equalizerController.audioSessionId.value,
-                                            textWarm = textWarm,
-                                            accent = iconGlow
-                                        )
-                                        else -> QueuePanel(
-                                            songs = songs,
-                                            playlists = playlists,
-                                            textWarm = textWarm,
-                                            textMuted = textMuted,
-                                            accent = iconGlow,
-                                            formatRemaining = { formatHms(it) },
-                                            onStartTimer = { durationMs, fadeMs ->
-                                                viewModel.startSleepTimer(durationMs, fadeMs)
-                                            },
-                                            onCancelTimer = { viewModel.cancelSleepTimer() },
-                                            onPlayPlaylist = { playlist, startId ->
-                                                viewModel.playPlaylist(playlist, startId)
-                                            },
-                                            onSavePlaylists = { viewModel.savePlaylists() },
-                                            onCreatePlaylist = { name, initial ->
-                                                viewModel.createPlaylist(name, initial)
-                                            },
-                                            onAddSongToPlaylist = { playlist, song ->
-                                                viewModel.addSongToPlaylist(playlist, song)
-                                            },
-                                            onExport = onExport,
-                                            onImport = onImport
-                                        )
-                                    }
+                                        }
+                                    )
                                 }
-                            }
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 12.dp, bottom = 4.dp),
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                repeat(3) { index ->
-                                    val isSelected = pagerState.currentPage == index
-                                    Box(
-                                        modifier = Modifier
-                                            .padding(horizontal = 6.dp)
-                                            .height(6.dp)
-                                            .width(if (isSelected) 26.dp else 12.dp)
-                                            .clip(RoundedCornerShape(999.dp))
-                                            .background(
-                                                if (isSelected) {
-                                                    iconGlow
-                                                } else {
-                                                    dividerWarm
-                                                }
-                                            )
+                                else -> Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                                    SleepTimerPanel(
+                                        textWarm = textWarm,
+                                        textMuted = textMuted,
+                                        accent = iconGlow,
+                                        formatRemaining = { formatHms(it) },
+                                        onStartTimer = { d, f -> viewModel.startSleepTimer(d, f) },
+                                        onCancelTimer = { viewModel.cancelSleepTimer() }
                                     )
                                 }
                             }
                         }
+
+                        // Page indicator for the 3 swipe-screens.
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            repeat(3) { index ->
+                                val selected = swipePagerState.currentPage == index
+                                Box(
+                                    modifier = Modifier
+                                        .padding(horizontal = 4.dp)
+                                        .size(if (selected) 9.dp else 7.dp)
+                                        .background(
+                                            if (selected) iconGlow else dividerWarm,
+                                            RoundedCornerShape(999.dp)
+                                        )
+                                )
+                            }
+                        }
+                }
+
+                // FRONT: the song list. By default it fully covers the screens
+                // behind; the collapse button pulls it down (translationY) to
+                // reveal them.
+                val pullProgress by animateFloatAsState(
+                    targetValue = if (expanded) 1f else 0f,
+                    label = "listPull"
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { translationY = pullProgress * size.height }
+                        .background(backgroundBrush)
+                ) {
+                    if (songs.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "No songs found on this device",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = textMuted
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(bottom = 16.dp)
+                        ) {
+                            itemsIndexed(songs) { index, song ->
+                                SongRow(
+                                    title = song.title,
+                                    durationLabel = formatTime(song.durationMs),
+                                    isCurrent = song.id == currentId,
+                                    textWarm = textWarm,
+                                    textMuted = textMuted,
+                                    accent = iconGlow,
+                                    onClick = { playbackConnection.playFromMediaId(song.id) },
+                                    onLongClick = { playlistTargetSong = song }
+                                )
+                                if (index < songs.lastIndex) {
+                                    Divider(color = dividerWarm)
+                                }
+                            }
+                        }
+
+                        FastScroller(
+                            lazyListState = listState,
+                            songs = songs,
+                            modifier = Modifier.fillMaxSize(),
+                            accent = iconGlow,
+                            textWarm = textWarm,
+                            textMuted = textMuted
+                        )
                     }
                 }
             }
 
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(
-                    containerColor = panelColor
-                ),
+                colors = CardDefaults.elevatedCardColors(containerColor = panelColor),
                 elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp)
             ) {
                 Column(
@@ -385,12 +368,8 @@ fun PlayerScreen(
                         }
                         IconButton(onClick = { expanded = !expanded }) {
                             Icon(
-                                imageVector = if (expanded) {
-                                    Icons.Default.KeyboardArrowDown
-                                } else {
-                                    Icons.Default.KeyboardArrowUp
-                                },
-                                contentDescription = "Expand",
+                                imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (expanded) "Show list" else "Show equalizer / timer / playlists",
                                 tint = iconGlow
                             )
                         }
@@ -398,8 +377,7 @@ fun PlayerScreen(
 
                     if (durationMs > 0L) {
                         Slider(
-                            value = (effectivePosition / durationMs.toFloat())
-                                .coerceIn(0f, 1f),
+                            value = (effectivePosition / durationMs.toFloat()).coerceIn(0f, 1f),
                             onValueChange = { value ->
                                 isScrubbing = true
                                 scrubPositionMs = (durationMs * value).toLong()
@@ -413,14 +391,10 @@ fun PlayerScreen(
                                 activeTrackColor = iconGlow,
                                 inactiveTrackColor = panelBorder
                             ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp)
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                         )
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 2.dp, bottom = 6.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 6.dp),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
@@ -440,9 +414,7 @@ fun PlayerScreen(
                         }
                         if (nextSong != null) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 2.dp),
+                                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
@@ -526,7 +498,7 @@ fun PlayerScreen(
                                             newPlaylistName = ""
                                         }
                                     ) {
-                                        Text(text = playlist.name, color = textWarm)
+                                        Text(text = playlist.name)
                                     }
                                 }
                             }
@@ -556,7 +528,7 @@ fun PlayerScreen(
                             playlistTargetSong = null
                             newPlaylistName = ""
                         }) {
-                            Text("Create", color = textWarm)
+                            Text("Create")
                         }
                     },
                     dismissButton = {
@@ -564,7 +536,7 @@ fun PlayerScreen(
                             playlistTargetSong = null
                             newPlaylistName = ""
                         }) {
-                            Text("Close", color = textWarm)
+                            Text("Close")
                         }
                     }
                 )

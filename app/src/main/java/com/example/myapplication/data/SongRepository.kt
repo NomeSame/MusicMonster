@@ -57,7 +57,7 @@ class SongRepository(
             }
         }
 
-        return list
+return list.sortedWith(naturalSortComparator())
     }
 
     private fun loadFromTree(treeUri: Uri): List<Song> {
@@ -87,6 +87,27 @@ class SongRepository(
                 }
             }
         }
-        return list.sortedBy { it.title.lowercase() }
+return list.sortedWith(naturalSortComparator())
     }
+}
+
+private fun naturalSortComparator(): Comparator<Song> = Comparator { a, b ->
+    compareNatural(a.title.lowercase(), b.title.lowercase())
+}
+
+private fun compareNatural(a: String, b: String): Int {
+    var i = 0; var j = 0
+    while (i < a.length && j < b.length) {
+        if (a[i].isDigit() && b[j].isDigit()) {
+            var numA = 0L; while (i < a.length && a[i].isDigit()) { numA = numA * 10 + (a[i] - '0'); i++ }
+            var numB = 0L; while (j < b.length && b[j].isDigit()) { numB = numB * 10 + (b[j] - '0'); j++ }
+            if (numA != numB) return numA.compareTo(numB)
+        } else {
+            if (a[i] != b[j]) return a[i].compareTo(b[j])
+            i++; j++
+        }
+    }
+    if (i < a.length) return 1
+    if (j < b.length) return -1
+    return 0
 }

@@ -84,7 +84,7 @@ fun SleepTimerPanel(
                     timerRunning = true
                     onStartTimer(totalMs, 10_000L)
                 }) {
-                    Text("${minutes}m", color = textWarm)
+                    Text("${minutes}m")
                 }
             }
         }
@@ -149,7 +149,7 @@ fun SleepTimerPanel(
                     onStartTimer(totalMs, 10_000L)
                 }
             }) {
-                Text("Start", color = textWarm)
+                Text("Start")
             }
             Button(onClick = {
                 onCancelTimer()
@@ -157,7 +157,7 @@ fun SleepTimerPanel(
                 sleepTargetElapsedMs = null
                 sleepRemainingMs = sleepTotalMs
             }) {
-                Text("Cancel", color = textWarm)
+                Text("Cancel")
             }
         }
         Spacer(modifier = Modifier.height(6.dp))

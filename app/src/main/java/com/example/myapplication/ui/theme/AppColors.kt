@@ -43,8 +43,8 @@ fun darkAppColors(accent: Color): AppColors = AppColors(
     accent = accent,
     // A dimmer shade of the accent for secondary/active-but-quiet elements.
     accentSoft = lerp(accent, Color(0xFF101114), 0.35f),
-    // Dark foreground for use on top of the (assumed bright) accent.
-    onAccent = Color(0xFF141414)
+    // Foreground for use on top of accent — dark for light accents, light for dark.
+    onAccent = if (0.2126f * accent.red + 0.7152f * accent.green + 0.0722f * accent.blue > 0.5f) Color(0xFF141414) else Color(0xFFECEDEF)
 )
 
 val LocalAppColors = staticCompositionLocalOf { darkAppColors(DefaultAccent) }
