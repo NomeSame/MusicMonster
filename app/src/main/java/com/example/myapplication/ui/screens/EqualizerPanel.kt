@@ -122,7 +122,7 @@ fun EqualizerPanel(
                         modifier = Modifier.weight(1f),
                         onClick = { onPresetSelected(label, buildPresetLevels(label, equalizer)) }
                     ) {
-                        Text(text = label, color = textWarm)
+                        Text(text = label)
                     }
                 }
             }
@@ -135,7 +135,7 @@ fun EqualizerPanel(
                         modifier = Modifier.weight(1f),
                         onClick = { onPresetSelected(label, buildPresetLevels(label, equalizer)) }
                     ) {
-                        Text(text = label, color = textWarm)
+                        Text(text = label)
                     }
                 }
                 Spacer(modifier = Modifier.weight(1f))

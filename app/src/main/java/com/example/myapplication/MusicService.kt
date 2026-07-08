@@ -67,6 +67,9 @@ class MusicService : Service() {
     companion object {
         const val CHANNEL_ID = "monsterplayer_channel"
         const val NOTIFICATION_ID = 1
+        const val PREF_LAST_SONG_ID = "last_song_id"
+        const val PREF_LAST_POSITION = "last_position"
+        const val PREF_SHUFFLE_ENABLED = "shuffle_enabled"
         const val ACTION_TOGGLE_SHUFFLE = "com.example.myapplication.action.TOGGLE_SHUFFLE"
         const val ACTION_RELOAD_LIBRARY = "com.example.myapplication.action.RELOAD_LIBRARY"
         const val ACTION_SET_SLEEP_TIMER = "com.example.myapplication.action.SET_SLEEP_TIMER"
@@ -118,6 +121,18 @@ class MusicService : Service() {
             player.prepare()
         }
 
+        val (lastId, lastPos, shuffleWasOn) = restorePlaybackState()
+        if (shuffleWasOn && items.isNotEmpty()) {
+            player.shuffleModeEnabled = true
+            reshufflePlaylist()
+        }
+        if (lastId != null && items.isNotEmpty()) {
+            val targetIndex = items.indexOfFirst { it.mediaId == lastId }
+            if (targetIndex >= 0) {
+                player.seekTo(targetIndex, lastPos)
+            }
+        }
+
         session = MediaSessionCompat(this, "MonsterPlayerService").apply {
             isActive = true
             setFlags(
@@ -152,6 +167,7 @@ class MusicService : Service() {
                 }
 
                 override fun onPause() {
+                    savePlaybackState()
                     player.pause()
                     setPlaybackState(false)
                     updateNotification(false)
@@ -182,12 +198,14 @@ class MusicService : Service() {
                         reshufflePlaylist()
                     }
                     session.setShuffleMode(shuffleMode)
+                    savePlaybackState()
                     setPlaybackState(player.isPlaying)
                     updateNotification(player.isPlaying)
                 }
 
                 override fun onSeekTo(pos: Long) {
                     player.seekTo(pos.coerceAtLeast(0L))
+                    savePlaybackState()
                     setPlaybackState(player.isPlaying)
                     updateSessionMetadata()
                     updateNotification(player.isPlaying)
@@ -239,6 +257,7 @@ class MusicService : Service() {
                 updateSessionMetadata()
                 setPlaybackState(player.isPlaying)
                 updateNotification(player.isPlaying)
+                savePlaybackState()
             }
 
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
@@ -321,7 +340,15 @@ class MusicService : Service() {
         return START_STICKY
     }
 
+    // Swiping the app out of Recents does not stop a foreground service (so
+    // onDestroy may not run) — persist here so state survives even while playing.
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        savePlaybackState()
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
+        savePlaybackState()
         session.isActive = false
         session.release()
         player.release()
@@ -355,7 +382,7 @@ class MusicService : Service() {
             MediaStore.Audio.Media.DURATION
         )
         val selection = "${MediaStore.Audio.Media.IS_MUSIC}!=0"
-        val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
+val sortOrder = null
 
         val items = mutableListOf<MediaItem>()
         val titles = mutableListOf<String>()
@@ -383,7 +410,10 @@ class MusicService : Service() {
             }
         }
 
-        return Triple(items, titles, durations)
+        val combined = items.zip(titles).sortedWith(naturalTitleComparator())
+        val sortedItems = combined.map { it.first }
+        val sortedTitles = combined.map { it.second }
+        return Triple(sortedItems, sortedTitles, durations)
     }
 
     private fun loadTreePlaylist(treeUri: Uri): Triple<List<MediaItem>, List<String>, Map<String, Long>> {
@@ -422,11 +452,15 @@ class MusicService : Service() {
                 }
             }
         }
-        val combined = items.zip(titles).sortedBy { it.second.lowercase() }
+        val combined = items.zip(titles).sortedWith(naturalTitleComparator())
         val sortedItems = combined.map { it.first }
         val sortedTitles = combined.map { it.second }
         return Triple(sortedItems, sortedTitles, durations)
     }
+
+    private fun naturalTitleComparator(): Comparator<Pair<MediaItem, String>> = Comparator { (_, a), (_, b) ->
+    compareNatural(a.lowercase(), b.lowercase())
+}
 
     private fun setPlaybackState(isPlaying: Boolean) {
         val actions =
@@ -679,11 +713,44 @@ class MusicService : Service() {
         sleepHandler.post(runnable)
     }
 
+    private fun compareNatural(a: String, b: String): Int {
+        var i = 0; var j = 0
+        while (i < a.length && j < b.length) {
+            if (a[i].isDigit() && b[j].isDigit()) {
+                var numA = 0L; while (i < a.length && a[i].isDigit()) { numA = numA * 10 + (a[i] - '0'); i++ }
+                var numB = 0L; while (j < b.length && b[j].isDigit()) { numB = numB * 10 + (b[j] - '0'); j++ }
+                if (numA != numB) return numA.compareTo(numB)
+            } else {
+                if (a[i] != b[j]) return a[i].compareTo(b[j])
+                i++; j++
+            }
+        }
+        if (i < a.length) return 1
+        if (j < b.length) return -1
+        return 0
+    }
+
     private fun cancelSleepTimer() {
         sleepRunnable?.let { sleepHandler.removeCallbacks(it) }
         fadeRunnable?.let { sleepHandler.removeCallbacks(it) }
         sleepRunnable = null
         fadeRunnable = null
         player.volume = originalVolume
+    }
+
+    private fun savePlaybackState() {
+        prefs.edit()
+            .putString(PREF_LAST_SONG_ID, player.currentMediaItem?.mediaId)
+            .putLong(PREF_LAST_POSITION, player.currentPosition)
+            .putBoolean(PREF_SHUFFLE_ENABLED, player.shuffleModeEnabled)
+            .apply()
+    }
+
+    private fun restorePlaybackState(): Triple<String?, Long, Boolean> {
+        return Triple(
+            prefs.getString(PREF_LAST_SONG_ID, null),
+            prefs.getLong(PREF_LAST_POSITION, 0L),
+            prefs.getBoolean(PREF_SHUFFLE_ENABLED, false)
+        )
     }
 }

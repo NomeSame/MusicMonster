@@ -1,9 +1,9 @@
 package com.example.myapplication.ui.screens
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,34 +31,24 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.example.myapplication.Song
 import com.example.myapplication.model.Playlist
 import com.example.myapplication.ui.components.PlaylistRow
 import com.example.myapplication.ui.components.PlaylistSongRow
 
-/**
- * The "Queue" pager page: sleep timer + playlist management (list, detail,
- * add-songs and create-playlist dialogs). Stateless with respect to app data —
- * playlist navigation and dialog visibility are UI-local; everything else is
- * hoisted through callbacks.
- */
 @Composable
-fun QueuePanel(
+fun PlaylistScreen(
     songs: List<Song>,
     playlists: SnapshotStateList<Playlist>,
     textWarm: Color,
     textMuted: Color,
     accent: Color,
-    formatRemaining: (Long) -> String,
-    onStartTimer: (durationMs: Long, fadeMs: Long) -> Unit,
-    onCancelTimer: () -> Unit,
     onPlayPlaylist: (Playlist, String) -> Unit,
     onSavePlaylists: () -> Unit,
     onCreatePlaylist: (String, Song?) -> Playlist,
@@ -72,32 +62,14 @@ fun QueuePanel(
     var createPlaylistName by rememberSaveable { mutableStateOf("") }
     val activePlaylist = playlists.firstOrNull { it.id == activePlaylistId }
 
-    BackHandler(activePlaylist != null) {
-        activePlaylistId = null
-        showAddSongsDialog = false
-    }
-
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 12.dp)
+        contentPadding = PaddingValues(bottom = 12.dp)
     ) {
-        item {
-            SleepTimerPanel(
-                textWarm = textWarm,
-                textMuted = textMuted,
-                accent = accent,
-                formatRemaining = formatRemaining,
-                onStartTimer = onStartTimer,
-                onCancelTimer = onCancelTimer
-            )
-        }
-
         if (activePlaylist != null) {
             item {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = { activePlaylistId = null }) {
@@ -159,29 +131,19 @@ fun QueuePanel(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Button(
-                        onClick = { onExport() },
-                        modifier = Modifier.weight(1f)
-                    ) {
+                    Button(onClick = onExport, modifier = Modifier.weight(1f)) {
                         Text("Export")
                     }
-                    Button(
-                        onClick = { onImport() },
-                        modifier = Modifier.weight(1f)
-                    ) {
+                    Button(onClick = onImport, modifier = Modifier.weight(1f)) {
                         Text("Import")
                     }
                 }
                 Button(
                     onClick = { showCreatePlaylistDialog = true },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp)
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
                 ) {
                     Text("New playlist")
                 }
@@ -242,9 +204,7 @@ fun QueuePanel(
                         color = textMuted
                     )
                 } else {
-                    LazyColumn(
-                        modifier = Modifier.heightIn(max = 280.dp)
-                    ) {
+                    LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
                         itemsIndexed(availableSongs) { _, song ->
                             Row(
                                 modifier = Modifier
@@ -327,25 +287,4 @@ fun QueuePanel(
             }
         )
     }
-}
-
-@Preview
-@Composable
-private fun QueuePanelPreview() {
-    QueuePanel(
-        songs = emptyList(),
-        playlists = androidx.compose.runtime.snapshots.SnapshotStateList(),
-        textWarm = Color.White,
-        textMuted = Color.Gray,
-        accent = Color(0xFF80DEEA),
-        formatRemaining = { "0:00:00" },
-        onStartTimer = { _, _ -> },
-        onCancelTimer = {},
-        onPlayPlaylist = { _, _ -> },
-        onSavePlaylists = {},
-        onCreatePlaylist = { _, _ -> Playlist("p", "New", androidx.compose.runtime.mutableStateListOf()) },
-        onAddSongToPlaylist = { _, _ -> },
-        onExport = {},
-        onImport = {}
-    )
 }
