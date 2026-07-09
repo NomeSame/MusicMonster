@@ -1,7 +1,9 @@
 package com.example.myapplication.ui.components
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,7 +36,6 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.Song
-import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
@@ -54,13 +56,13 @@ fun FastScroller(
     val total = songs.size
     if (total == 0) return
 
-    val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
 
     var isDragging by remember { mutableStateOf(false) }
     var dragLetter by remember { mutableStateOf("") }
     var trackHeightPx by remember { mutableFloatStateOf(1f) }
+    var dragY by remember { mutableFloatStateOf(0f) }
 
     // Current scroll position → thumb offset. The thumb is a short fixed-height
     // grip (not proportional to list length) so it stays compact.
@@ -70,7 +72,15 @@ fun FastScroller(
     val progress = (firstVisible.toFloat() / maxFirst).coerceIn(0f, 1f)
     val thumbHeightPx = with(density) { 40.dp.toPx() }.coerceAtMost(trackHeightPx)
 
+    // "Active" while the finger drags the bar OR the list is scrolling by any
+    // means (finger-fling on the list included). The bar grows softly when
+    // active and shrinks back to a thin resting state when scrolling stops.
+    val active = isDragging || lazyListState.isScrollInProgress
+    val trackWidth by animateDpAsState(if (active) 6.dp else 3.dp, label = "trackWidth")
+    val thumbWidth by animateDpAsState(if (active) 14.dp else 5.dp, label = "thumbWidth")
+
     fun jumpTo(y: Float) {
+        dragY = y.coerceIn(0f, trackHeightPx)
         val fraction = (y / trackHeightPx).coerceIn(0f, 1f)
         val index = (fraction * (total - 1)).roundToInt().coerceIn(0, total - 1)
         val letter = songs[index].title.firstOrNull()?.uppercase() ?: ""
@@ -78,27 +88,41 @@ fun FastScroller(
             dragLetter = letter
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         }
-        scope.launch { lazyListState.scrollToItem(index) }
+        lazyListState.requestScrollToItem(index)
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        // Touch zone (generous) + track + draggable thumb, on the right edge.
+        // Touch zone (generous) + track + draggable thumb, inset from the right
+        // edge and excluded from the system back-gesture so direct taps register.
         Box(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
                 .width(56.dp)
+                // Keep the grabbable zone clear of the screen's extreme edge,
+                // where Android's back-gesture lives (systemGestureExclusion has
+                // a ~200dp/edge cap and can't protect a full-height bar alone).
+                .padding(end = 12.dp)
+                .systemGestureExclusion()
                 .onSizeChanged { trackHeightPx = it.height.toFloat() }
-                .pointerInput(total, visibleCount) {
-                    detectVerticalDragGestures(
-                        onDragStart = { offset ->
-                            isDragging = true
-                            jumpTo(offset.y)
-                        },
-                        onVerticalDrag = { change, _ -> jumpTo(change.position.y) },
-                        onDragEnd = { isDragging = false },
-                        onDragCancel = { isDragging = false }
-                    )
+                .pointerInput(songs) {
+                    // Grab immediately on touch-down in the zone and release
+                    // reliably on up/cancel, so the thumb never gets "stuck".
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        isDragging = true
+                        jumpTo(down.position.y)
+                        down.consume()
+                        // Follow the same finger through every move until it lifts.
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            jumpTo(change.position.y)
+                            change.consume()
+                            if (!change.pressed) break
+                        }
+                        isDragging = false
+                    }
                 }
         ) {
             // Track background.
@@ -106,19 +130,28 @@ fun FastScroller(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .fillMaxHeight()
-                    .width(if (isDragging) 5.dp else 4.dp)
+                    .width(trackWidth)
                     .background(textMuted.copy(alpha = 0.22f), RoundedCornerShape(3.dp))
             )
-            // Thumb: short fixed-height grip positioned by scroll progress.
-            val thumbOffsetPx = progress * (trackHeightPx - thumbHeightPx)
+            // Thumb: short fixed-height grip. While dragging it is pinned
+            // exactly under the finger; otherwise it reflects scroll progress.
+            val maxOffset = (trackHeightPx - thumbHeightPx).coerceAtLeast(0f)
+            val thumbOffsetPx = (
+                if (isDragging) dragY - thumbHeightPx / 2f
+                else progress * maxOffset
+            ).coerceIn(0f, maxOffset)
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .offset { IntOffset(0, thumbOffsetPx.roundToInt()) }
                     .height(with(density) { thumbHeightPx.toDp() })
-                    .width(if (isDragging) 7.dp else 5.dp)
+                    .width(thumbWidth)
                     .background(
-                        if (isDragging) accent else textMuted.copy(alpha = 0.65f),
+                        when {
+                            isDragging -> accent
+                            active -> textMuted.copy(alpha = 0.85f)
+                            else -> textMuted.copy(alpha = 0.65f)
+                        },
                         RoundedCornerShape(4.dp)
                     )
             )
