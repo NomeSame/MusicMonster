@@ -7,4 +7,7 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <!-- Matches the top of the app's dark background gradient so the splash
+         transitions seamlessly into the app (no white flash). -->
+    <color name="splash_background">#121316</color>
 </resources>

@@ -21,3 +21,8 @@ app/build/
 
 # Gradle wrapper cache
 gradle-cache/
+
+# Signing (never commit keys or their passwords)
+keystore.properties
+*.jks
+*.keystore
