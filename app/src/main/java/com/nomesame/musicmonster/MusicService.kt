@@ -109,7 +109,6 @@ class MusicService : Service() {
         player = ExoPlayer.Builder(this).build()
         player.repeatMode = Player.REPEAT_MODE_ALL
 
-        // ✅ Load device songs (MediaStore) instead of raw
         val (items, itemTitles, itemDurations) = loadDevicePlaylist()
         titles = itemTitles
         libraryItems = items.associateBy { it.mediaId }
@@ -294,7 +293,8 @@ class MusicService : Service() {
         }
     }
 
-    // ✅ Needed so MediaButtonReceiver PendingIntents control your MediaSession
+    // Handles action intents (e.g. from notification/lock-screen PendingIntents)
+    // delivered to this service, since it isn't a bound service.
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_TOGGLE_SHUFFLE) {
             val newMode = if (player.shuffleModeEnabled) {

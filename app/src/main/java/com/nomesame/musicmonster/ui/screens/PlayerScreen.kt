@@ -226,10 +226,14 @@ fun PlayerScreen(
                 ) {
                     HorizontalPager(
                         state = swipePagerState,
+                        // Full height (no top padding) so the empty area above the
+                        // titles is still part of the pager and reacts to swipes.
+                        // The shared 80dp title offset lives in each page's content.
                         modifier = Modifier.weight(1f).fillMaxWidth()
                     ) { page ->
                         when (page) {
-                            0 -> PlaylistScreen(
+                            0 -> Box(modifier = Modifier.fillMaxSize().padding(top = 80.dp)) {
+                              PlaylistScreen(
                                 songs = songs,
                                 playlists = playlists,
                                 textWarm = textWarm,
@@ -247,8 +251,9 @@ fun PlayerScreen(
                                 },
                                 onExport = onExport,
                                 onImport = onImport
-                            )
-                            1 -> Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                              )
+                            }
+                            1 -> Box(modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 80.dp, bottom = 16.dp)) {
                                 EqualizerPanel(
                                         audioSessionId = equalizerController.audioSessionId.value,
                                         textWarm = textWarm,
@@ -288,7 +293,7 @@ fun PlayerScreen(
                                         }
                                     )
                                 }
-                                else -> Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                                else -> Box(modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 80.dp, bottom = 16.dp)) {
                                     SleepTimerPanel(
                                         textWarm = textWarm,
                                         textMuted = textMuted,
