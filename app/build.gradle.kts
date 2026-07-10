@@ -67,10 +67,7 @@ android {
 
 dependencies {
 
-    implementation("androidx.media:media:1.7.1")
-    implementation(platform("androidx.compose:compose-bom:2024.**.**")) // whatever you already use
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.media:media:1.7.1")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -83,7 +80,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-common:1.4.1")
     // MediaSessionCompat for lock‑screen controls and background playback
-    implementation("androidx.media:media:1.6.0")
+    implementation("androidx.media:media:1.7.1")
     implementation("androidx.documentfile:documentfile:1.0.1")
     // Deliberate, branded splash (backwards-compatible to API 24)
     implementation("androidx.core:core-splashscreen:1.0.1")

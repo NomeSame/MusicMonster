@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
@@ -69,7 +70,8 @@ fun SleepTimerPanel(
             text = "Sleep Timer",
             style = MaterialTheme.typography.titleMedium,
             color = textWarm,
-            modifier = Modifier.padding(bottom = 6.dp)
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
