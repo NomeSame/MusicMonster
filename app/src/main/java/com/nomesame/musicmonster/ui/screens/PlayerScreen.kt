@@ -132,6 +132,7 @@ fun PlayerScreen(
     val customBgUri = viewModel.customBgUri.collectAsState().value
     val customBgScrim = viewModel.customBgScrim.collectAsState().value
     val pendingPaletteAccent = viewModel.pendingPaletteAccent.collectAsState().value
+    val playerOpacity by viewModel.playerOpacity.collectAsState()
     val customBgBitmap = rememberBackgroundBitmap(if (customBgEnabled) customBgUri else null)
     val useDefaultBgImage = customBgEnabled && customBgUri == null
     // 0 = list covers everything, 1 = list fully pulled down (screens revealed).
@@ -380,7 +381,7 @@ fun PlayerScreen(
 
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = panelColor),
+                colors = CardDefaults.elevatedCardColors(containerColor = panelColor.copy(alpha = playerOpacity)),
                 elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp)
             ) {
                 Column(
@@ -595,7 +596,9 @@ fun PlayerScreen(
                     bgScrim = customBgScrim,
                     onBgScrimChange = { viewModel.setCustomBgScrim(it) },
                     onPickBackground = onPickBackground,
-                    onResetBackground = { viewModel.resetCustomBackground() }
+                    onResetBackground = { viewModel.resetCustomBackground() },
+                    playerOpacity = playerOpacity,
+                    onPlayerOpacityChange = { viewModel.setPlayerOpacity(it) }
                 )
             }
 

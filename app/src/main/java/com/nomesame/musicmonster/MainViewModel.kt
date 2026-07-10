@@ -69,6 +69,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // --- Player card opacity ---------------------------------------------------
+
+    private val _playerOpacity = MutableStateFlow(prefs.getFloat(KEY_PLAYER_OPACITY, 1f).coerceIn(0f, 1f))
+    val playerOpacity: StateFlow<Float> = _playerOpacity.asStateFlow()
+
+    fun setPlayerOpacity(value: Float) {
+        val clamped = value.coerceIn(0f, 1f)
+        prefs.edit().putFloat(KEY_PLAYER_OPACITY, clamped).apply()
+        _playerOpacity.value = clamped
+    }
+
     // --- Custom background (personalization) ----------------------------------
 
     private val _customBgEnabled = MutableStateFlow(backgroundRepository.isEnabled())
@@ -243,5 +254,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             action = MusicService.ACTION_CANCEL_SLEEP_TIMER
         }
         app.startService(intent)
+    }
+
+    companion object {
+        private const val KEY_PLAYER_OPACITY = "player_opacity"
     }
 }

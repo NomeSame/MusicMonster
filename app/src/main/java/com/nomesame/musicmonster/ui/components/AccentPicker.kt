@@ -73,7 +73,9 @@ fun AccentPickerDialog(
     bgScrim: Float = 0.75f,
     onBgScrimChange: (Float) -> Unit = {},
     onPickBackground: () -> Unit = {},
-    onResetBackground: () -> Unit = {}
+    onResetBackground: () -> Unit = {},
+    playerOpacity: Float = 1f,
+    onPlayerOpacityChange: (Float) -> Unit = {}
 ) {
     val colors = LocalAppColors.current
     val initial = remember { colorToHsv(current) }
@@ -245,6 +247,24 @@ fun AccentPickerDialog(
                         )
                     )
                 }
+
+                Spacer(Modifier.height(AppSpacing.sm))
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(1.dp).background(colors.divider)
+                )
+                Spacer(Modifier.height(AppSpacing.sm))
+
+                Text(text = "Player card opacity", color = colors.textMuted)
+                Slider(
+                    value = playerOpacity,
+                    onValueChange = onPlayerOpacityChange,
+                    valueRange = 0f..1f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = selected,
+                        activeTrackColor = selected,
+                        inactiveTrackColor = colors.divider
+                    )
+                )
             }
         },
         confirmButton = {
