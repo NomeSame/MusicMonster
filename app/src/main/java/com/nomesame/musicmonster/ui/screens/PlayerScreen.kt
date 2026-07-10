@@ -149,7 +149,8 @@ fun PlayerScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
       // The single full-screen background shared by every layer.
-      if (customBgEnabled) {
+      // Falls back to the gradient when the custom image failed to load.
+      if (customBgEnabled && (customBgBitmap != null || useDefaultBgImage)) {
           AppBackground(
               bitmap = customBgBitmap,
               useDefaultImage = useDefaultBgImage,

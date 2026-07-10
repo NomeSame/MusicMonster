@@ -49,13 +49,19 @@ class PaletteEngine(private val context: Context) {
  */
 internal fun decodeSampledBitmap(context: Context, uri: Uri, maxDim: Int): Bitmap? {
     val resolver = context.contentResolver
+    // Read once into a byte array — BitmapFactory.decodeStream relies on
+    // mark/reset which some ContentProvider streams don't support, causing
+    // decode to return null silently for JPEG etc. ByteArray decoding is
+    // safe and portable across all providers.
+    val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     val (w, h) = bounds.outWidth to bounds.outHeight
     if (w <= 0 || h <= 0) return null
 
     val opts = BitmapFactory.Options().apply { inSampleSize = computeInSampleSize(w, h, maxDim) }
-    return resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
 }
 
 /**
