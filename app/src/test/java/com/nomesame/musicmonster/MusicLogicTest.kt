@@ -12,7 +12,7 @@ import org.robolectric.annotation.Config
 
 /** Pure-JVM tests for the framework-independent music logic. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [24, 26, 28, 30, 33, 34])
 class MusicLogicTest {
 
     private fun song(id: String, title: String) = Song(

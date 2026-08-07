@@ -20,7 +20,7 @@ import java.io.ByteArrayOutputStream
 
 /** Robolectric tests for playlist persistence and JSON import/export. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [24, 26, 28, 30, 33, 34])
 class PlaylistRepositoryTest {
 
     private lateinit var prefs: android.content.SharedPreferences

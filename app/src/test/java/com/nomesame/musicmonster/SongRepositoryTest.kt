@@ -21,7 +21,7 @@ import org.robolectric.annotation.Config
  * exercised with a thrown SecurityException.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [24, 26, 28, 30, 33, 34])
 class SongRepositoryTest {
 
     private lateinit var context: Context
