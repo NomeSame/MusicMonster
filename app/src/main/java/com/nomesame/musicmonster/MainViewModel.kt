@@ -16,14 +16,19 @@ import com.nomesame.musicmonster.audio.EqualizerController
 import com.nomesame.musicmonster.data.BackgroundRepository
 import com.nomesame.musicmonster.data.PlaylistRepository
 import com.nomesame.musicmonster.data.SongRepository
+import com.nomesame.musicmonster.data.floatOr
+import com.nomesame.musicmonster.data.intOr
+import com.nomesame.musicmonster.data.stringOr
 import com.nomesame.musicmonster.model.Playlist
 import com.nomesame.musicmonster.playback.PlaybackConnection
 import com.nomesame.musicmonster.ui.theme.DefaultAccent
 import com.nomesame.musicmonster.ui.theme.PaletteEngine
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Holds UI state and orchestrates the repositories, audio controller and
@@ -61,7 +66,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // User-selectable accent color, persisted as an ARGB int in prefs.
     private val _accentColor = MutableStateFlow(
-        Color(prefs.getInt("accent_color", DefaultAccent.toArgb()))
+        Color(prefs.intOr("accent_color", DefaultAccent.toArgb()))
     )
     val accentColor: StateFlow<Color> = _accentColor.asStateFlow()
 
@@ -69,8 +74,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putInt("accent_color", color.toArgb()).apply()
         _accentColor.value = color
         // Re-tint the media notification / lock screen if the service is running.
+        // Must go through startPlaybackService: a plain startService() here
+        // throws on API 26+ whenever the service has since been killed, and
+        // IllegalStateException/ForegroundServiceStartNotAllowedException on
+        // API 31+ when the app isn't in the foreground.
         if (serviceStarted) {
-            app.startService(
+            startPlaybackService(
                 Intent(app, MusicService::class.java)
                     .setAction(MusicService.ACTION_REFRESH_NOTIFICATION)
             )
@@ -79,7 +88,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Player card opacity ---------------------------------------------------
 
-    private val _playerOpacity = MutableStateFlow(prefs.getFloat(KEY_PLAYER_OPACITY, 1f).coerceIn(0f, 1f))
+    private val _playerOpacity = MutableStateFlow(prefs.floatOr(KEY_PLAYER_OPACITY, 1f).coerceIn(0f, 1f))
     val playerOpacity: StateFlow<Float> = _playerOpacity.asStateFlow()
 
     fun setPlayerOpacity(value: Float) {
@@ -172,8 +181,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    /**
+     * Loads the library off the main thread. A MediaStore query or a recursive
+     * SAF walk is unbounded work: on a large library or slow storage doing it
+     * inline froze the UI (and, past 5s, produced an ANR) — a failure mode that
+     * only ever showed up on other people's devices.
+     */
     fun loadSongs() {
-        _songs.value = songRepository.load()
+        viewModelScope.launch {
+            _songs.value = withContext(Dispatchers.IO) { songRepository.load() }
+        }
     }
 
     fun loadPlaylists() {
@@ -188,18 +205,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun exportPlaylists(uri: Uri) {
-        playlistRepository.export(uri, playlists)
+        // File I/O through a SAF provider can block for seconds (cloud-backed
+        // providers especially); keep it off the UI thread.
+        val snapshot = playlists.toList()
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { playlistRepository.export(uri, snapshot) }
+        }
     }
 
     fun importPlaylists(uri: Uri) {
-        val newSequence = playlistRepository.importInto(uri, playlists, playlistSequence) ?: return
-        playlistSequence = newSequence
-        savePlaylists()
+        viewModelScope.launch {
+            // Read on IO, merge on main: importInto mutates the SnapshotStateList
+            // the UI observes, and snapshot state must be written from one thread.
+            val raw = withContext(Dispatchers.IO) { playlistRepository.readText(uri) } ?: return@launch
+            val newSequence = playlistRepository.importInto(raw, playlists, playlistSequence)
+                ?: return@launch
+            playlistSequence = newSequence
+            savePlaylists()
+        }
     }
 
     fun saveLibraryTreeUri(uri: Uri) {
         prefs.edit().putString("library_tree_uri", uri.toString()).apply()
     }
+
+    /** The persisted SAF library folder, or null when the library is MediaStore. */
+    fun libraryTreeUri(): Uri? = runCatching {
+        prefs.stringOr("library_tree_uri", null)?.let(Uri::parse)
+    }.getOrNull()
 
     fun nextUpSong(songs: List<Song>, currentId: String?): Song? = MusicLogic.nextUpSong(songs, currentId)
 
@@ -281,6 +314,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             action = MusicService.ACTION_CANCEL_SLEEP_TIMER
         }
         startPlaybackService(intent)
+    }
+
+    /**
+     * Equalizer and BassBoost are native AudioEffect handles — a limited,
+     * process-wide resource on many OEM audio HALs. Nothing else releases them
+     * when the app goes away, so do it here.
+     */
+    override fun onCleared() {
+        equalizerController.setupForSession(0)
+        super.onCleared()
     }
 
     companion object {

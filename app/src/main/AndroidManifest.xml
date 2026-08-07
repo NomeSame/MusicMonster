@@ -34,11 +34,34 @@
             </intent-filter>
         </activity>
 
-        <!-- Foreground service for background playback -->
+        <!-- Foreground service for background playback.
+             The ACTION_MEDIA_BUTTON filter is required so that
+             MediaButtonReceiver.onReceive can hand the key event to this
+             service; without it, it throws IllegalStateException. -->
         <service
             android:name=".MusicService"
             android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </service>
+
+        <!-- Required, and easy to miss: buildMediaButtonPendingIntent() looks
+             the media-button component up with queryBroadcastReceivers(), so a
+             service alone does not satisfy it. Without this receiver it returns
+             null and every Prev/Play/Next button on the notification becomes a
+             dead button — invisible on API 31+, where the system draws its own
+             MediaSession controls, and broken on API 24-30, where the
+             notification renders our actions. Pinned by
+             NotificationContractTest. -->
+        <receiver
+            android:name="androidx.media.session.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>

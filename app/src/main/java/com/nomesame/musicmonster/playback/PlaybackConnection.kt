@@ -127,10 +127,10 @@ class PlaybackConnection(private val context: Context) {
             }
 
             override fun onExtrasChanged(extras: Bundle?) {
-                val id = extras?.getInt("audio_session_id") ?: 0
-                if (id != 0) {
-                    onAudioSession?.invoke(id)
-                }
+                // Forward 0 too: it is the "audio session released" signal the
+                // equalizer needs in order to free its native effects. Dropping
+                // it here made that teardown path unreachable.
+                onAudioSession?.invoke(extras?.getInt("audio_session_id") ?: 0)
             }
 
             override fun onSessionDestroyed() {

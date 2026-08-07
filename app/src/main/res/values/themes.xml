@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.MyApplication" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- The app is dark-only, but the parent theme's window background is
+         white. Between the splash handing off and Compose drawing its first
+         frame the window background is what's on screen — a white flash on
+         every cold start, and the slower the device the longer it lasts. -->
+    <style name="Theme.MyApplication" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/splash_background</item>
+    </style>
 
     <!-- Deliberate branded splash: dark background matching the app (no white
          flash), app icon centered. Hands off to Theme.MyApplication afterwards. -->

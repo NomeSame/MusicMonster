@@ -68,6 +68,31 @@ object MusicLogic {
         return songs[(currentIndex + 1) % songs.size]
     }
 
+    /**
+     * Resolves playlist [ids] against the current library via [lookup] and
+     * returns the resolvable entries plus the start index *within that result*.
+     *
+     * Extracted from MusicService because getting this wrong is not visible in
+     * the happy path: when every id resolves, an index into [ids] and an index
+     * into the resolved list are the same number. They diverge only once a
+     * playlist references a song that has left the library — the normal state
+     * after a rescan — and the stale index then lands outside the shorter list,
+     * which ExoPlayer answers with IllegalSeekPositionException.
+     *
+     * The start index is 0 when [startId] itself is unresolvable, so playback
+     * begins at the top rather than not at all.
+     */
+    fun <T> resolvePlaylist(
+        ids: List<String>,
+        startId: String?,
+        lookup: (String) -> T?,
+    ): Pair<List<T>, Int> {
+        val resolvedIds = ids.filter { lookup(it) != null }
+        val items = resolvedIds.map { lookup(it)!! }
+        val startIndex = resolvedIds.indexOf(startId).takeIf { it >= 0 } ?: 0
+        return items to startIndex
+    }
+
     /** Formats a duration in ms as "M:SS" (or "H:MM:SS" past an hour). */
     fun formatTime(timeMs: Long): String {
         val totalSeconds = (timeMs / 1000).coerceAtLeast(0)

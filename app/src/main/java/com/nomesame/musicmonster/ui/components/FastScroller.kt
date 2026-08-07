@@ -91,7 +91,7 @@ fun FastScroller(
         dragY = y.coerceIn(0f, trackHeightPx)
         val fraction = (y / trackHeightPx).coerceIn(0f, 1f)
         val index = (fraction * (total - 1)).roundToInt().coerceIn(0, total - 1)
-        val letter = songs[index].title.firstOrNull()?.uppercase() ?: ""
+        val letter = songs[index].title.firstOrNull()?.uppercase(java.util.Locale.ROOT) ?: ""
         if (letter != dragLetter) {
             dragLetter = letter
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)

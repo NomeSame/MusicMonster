@@ -21,7 +21,7 @@ class SongRepository(
 
     fun load(): List<Song> {
         val treeUri = runCatching {
-            prefs.getString("library_tree_uri", null)?.let { Uri.parse(it) }
+            prefs.stringOr("library_tree_uri", null)?.let { Uri.parse(it) }
         }.getOrNull()
         if (treeUri != null) {
             return loadFromTree(treeUri)
@@ -65,6 +65,11 @@ class SongRepository(
             // library so the app degrades gracefully instead of crashing.
             // The user can still grant access via the SAF folder picker.
             list.clear()
+        } catch (_: IllegalArgumentException) {
+            // getColumnIndexOrThrow: some vendor MediaStore providers omit
+            // columns that are documented as always present. An unusable
+            // provider must degrade to "no songs", not crash the app.
+            list.clear()
         }
 
         return MusicLogic.sortNatural(list)
@@ -96,11 +101,13 @@ class SongRepository(
                     }
                 }
             }
-        } catch (_: SecurityException) {
+        } catch (_: Exception) {
             // The SAF tree permission can be revoked at any time (user revokes
-            // in Settings, or the grant expires). listFiles()/DocumentFile then
-            // throw SecurityException. Degrade to what we already collected
-            // instead of crashing — same invariant as the MediaStore path above.
+            // in Settings, or the grant expires) and third-party/cloud-backed
+            // DocumentsProviders throw a grab-bag of RuntimeExceptions from
+            // listFiles()/isDirectory when they are unhappy. Degrade to what we
+            // already collected instead of crashing — same invariant as the
+            // MediaStore path above.
         }
         return MusicLogic.sortNatural(list)
     }

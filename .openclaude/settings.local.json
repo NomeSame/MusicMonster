@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(java -version)",
+      "Bash(./gradlew compileDebugKotlin --console=plain -q)",
+      "Bash(./gradlew assembleDebug testDebugUnitTest --console=plain#)",
+      "Bash(./gradlew testDebugUnitTest --console=plain)",
+      "Bash(for d:*)",
+      "Bash(do echo:*)",
+      "Read(//home/m_linux/.gradle/caches/modules-2/files-2.1/org.robolectric/**)",
+      "Bash(done)",
+      "Read(//home/m_linux/.gradle/**)",
+      "Read(//home/m_linux/**)",
+      "Read(//home/m_linux/.m2/**)",
+      "Bash(find ~/.gradle/caches/modules-2/files-2.1/org.robolectric -name *.jar)",
+      "Bash(unzip -l ~/.gradle/caches/modules-2/files-2.1/org.robolectric/shadows-framework/4.12.2/b2804ae237fb6edfd266bcb81f13cb4d9d859bf1/shadows-framework-4.12.2.jar)",
+      "Bash(javap -cp ~/.gradle/caches/modules-2/files-2.1/org.robolectric/shadows-framework/4.12.2/b2804ae237fb6edfd266bcb81f13cb4d9d859bf1/shadows-framework-4.12.2.jar org.robolectric.shadows.ShadowContentResolver)",
+      "Bash(grep -o 'tests=\"\"\"\"[0-9]*\"\"\"\"' /mnt/d/Vault/projects/MusicBox/app/build/test-results/testDebugUnitTest/*.xml)",
+      "Bash(javap -cp ~/.gradle/caches/modules-2/files-2.1/org.robolectric/shadows-framework/4.12.2/b2804ae237fb6edfd266bcb81f13cb4d9d859bf1/shadows-framework-4.12.2.jar org.robolectric.shadows.ShadowAudioEffect)",
+      "Bash(ls ~/.gradle/caches/modules-2/files-2.1/org.robolectric/shadows-framework/4.12.2/*/)"
+    ]
+  }
+}
