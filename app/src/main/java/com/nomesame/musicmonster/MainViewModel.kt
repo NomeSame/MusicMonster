@@ -5,11 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import androidx.annotation.OptIn
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.util.UnstableApi
 import com.nomesame.musicmonster.audio.EqualizerController
 import com.nomesame.musicmonster.data.BackgroundRepository
 import com.nomesame.musicmonster.data.PlaylistRepository
@@ -29,6 +31,7 @@ import kotlinx.coroutines.launch
  * unchanged. Owning these in the ViewModel keeps them alive across config
  * changes and keeps the Activity thin.
  */
+@OptIn(UnstableApi::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val app: Application get() = getApplication()
@@ -50,6 +53,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var serviceStarted = false
     private var connected = false
+
+    // True when the MediaSession never became available (e.g. audio
+    // permission denied); UI uses this to stop the loading spinner.
+    private val _playbackUnavailable = MutableStateFlow(false)
+    val playbackUnavailable: StateFlow<Boolean> = _playbackUnavailable.asStateFlow()
 
     // User-selectable accent color, persisted as an ARGB int in prefs.
     private val _accentColor = MutableStateFlow(
@@ -146,9 +154,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             equalizerController.audioSessionId.value = id
             if (id != 0) {
                 equalizerController.setupForSession(id)
+            } else {
+                // ExoPlayer released its audio session (id -> 0). setupForSession(0)
+                // releases the Equalizer/BassBoost and nulls them; without this the
+                // effects would leak on the orphaned session.
+                equalizerController.setupForSession(0)
             }
         }
-        playbackConnection.connect { MusicService.sessionToken }
+        playbackConnection.connect(
+            tokenProvider = { MusicService.sessionToken },
+            onUnavailable = {
+                // Session never became available (e.g. audio permission
+                // denied): mark the connection ready so the UI does not spin
+                // forever. The user can still pick a folder (SAF) to play.
+                _playbackUnavailable.value = true
+            }
+        )
     }
 
     fun loadSongs() {
@@ -180,16 +201,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putString("library_tree_uri", uri.toString()).apply()
     }
 
-    fun nextUpSong(songs: List<Song>, currentId: String?): Song? {
-        if (songs.isEmpty()) return null
-        val currentIndex = songs.indexOfFirst { it.id == currentId }
-        val nextIndex = if (currentIndex >= 0) {
-            (currentIndex + 1) % songs.size
-        } else {
-            0
-        }
-        return songs.getOrNull(nextIndex)
-    }
+    fun nextUpSong(songs: List<Song>, currentId: String?): Song? = MusicLogic.nextUpSong(songs, currentId)
 
     fun createPlaylist(name: String, initialSong: Song?): Playlist {
         val playlist = Playlist(
@@ -212,18 +224,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Starts (or sends a command to) the foreground playback service.
+     *
+     * On API 26+ the service is a foreground service, so any intent targeting it
+     * must use startForegroundService: plain startService() from the background
+     * throws ForegroundServiceStartNotAllowedException on API 34+ when the
+     * service isn't already the foreground. startForegroundService is legal both
+     * when the service is freshly created and when it is already running —
+     * MusicService.onCreate always calls startForeground(Notification) promptly,
+     * satisfying the framework's 5s deadline either way.
+     */
+    private fun startPlaybackService(intent: Intent) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            app.startForegroundService(intent)
+        } else {
+            app.startService(intent)
+        }
+    }
+
     fun startMusicService() {
         val intent = Intent(app, MusicService::class.java)
         if (!serviceStarted) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                app.startForegroundService(intent)
-            } else {
-                app.startService(intent)
-            }
+            startPlaybackService(intent)
             serviceStarted = true
         } else {
             intent.action = MusicService.ACTION_RELOAD_LIBRARY
-            app.startService(intent)
+            startPlaybackService(intent)
         }
     }
 
@@ -236,7 +263,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             putExtra(MusicService.EXTRA_PLAYLIST_START_ID, startId)
         }
-        app.startService(intent)
+        startPlaybackService(intent)
     }
 
     fun startSleepTimer(durationMs: Long, fadeMs: Long) {
@@ -246,14 +273,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             putExtra(MusicService.EXTRA_SLEEP_MS, durationMs)
             putExtra(MusicService.EXTRA_FADE_MS, fadeMs)
         }
-        app.startService(intent)
+        startPlaybackService(intent)
     }
 
     fun cancelSleepTimer() {
         val intent = Intent(app, MusicService::class.java).apply {
             action = MusicService.ACTION_CANCEL_SLEEP_TIMER
         }
-        app.startService(intent)
+        startPlaybackService(intent)
     }
 
     companion object {

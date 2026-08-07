@@ -19,6 +19,7 @@ import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -66,10 +67,17 @@ fun FastScroller(
 
     // Current scroll position → thumb offset. The thumb is a short fixed-height
     // grip (not proportional to list length) so it stays compact.
-    val firstVisible = lazyListState.firstVisibleItemIndex
-    val visibleCount = lazyListState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
-    val maxFirst = (total - visibleCount).coerceAtLeast(1)
-    val progress = (firstVisible.toFloat() / maxFirst).coerceIn(0f, 1f)
+    // firstVisibleItemIndex/layoutInfo change every scroll frame; reading them
+    // directly in composition would recompose the whole scroller per frame, so
+    // they are hoisted into a derived state that only recomposes on change.
+    val progress by remember {
+        derivedStateOf {
+            val firstVisible = lazyListState.firstVisibleItemIndex
+            val visibleCount = lazyListState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
+            val maxFirst = (total - visibleCount).coerceAtLeast(1)
+            (firstVisible.toFloat() / maxFirst).coerceIn(0f, 1f)
+        }
+    }
     val thumbHeightPx = with(density) { 40.dp.toPx() }.coerceAtMost(trackHeightPx)
 
     // "Active" while the finger drags the bar OR the list is scrolling by any

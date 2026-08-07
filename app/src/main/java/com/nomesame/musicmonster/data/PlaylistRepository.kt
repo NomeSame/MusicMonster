@@ -80,10 +80,15 @@ class PlaylistRepository(
             obj.put("songs", songsArray)
             array.put(obj)
         }
-        resolver.openOutputStream(uri)?.use { output ->
-            OutputStreamWriter(output).use { writer ->
-                writer.write(array.toString(2))
+        try {
+            resolver.openOutputStream(uri)?.use { output ->
+                OutputStreamWriter(output).use { writer ->
+                    writer.write(array.toString(2))
+                }
             }
+        } catch (_: Exception) {
+            // Stale or revoked SAF uri (FileNotFoundException, SecurityException,
+            // ...): a failed export must not crash the app. Nothing to roll back.
         }
     }
 
@@ -93,8 +98,14 @@ class PlaylistRepository(
      * Returns the recomputed next sequence, or null if the file was invalid.
      */
     fun importInto(uri: Uri, target: SnapshotStateList<Playlist>, currentSequence: Int): Int? {
-        val raw = resolver.openInputStream(uri)?.use { input ->
-            BufferedReader(InputStreamReader(input)).readText()
+        val raw = try {
+            resolver.openInputStream(uri)?.use { input ->
+                BufferedReader(InputStreamReader(input)).readText()
+            }
+        } catch (_: Exception) {
+            // Stale or revoked SAF uri (FileNotFoundException, SecurityException,
+            // ...): treat like "no readable file" -> null, caller shows nothing.
+            null
         } ?: return null
         var sequence = currentSequence
         try {

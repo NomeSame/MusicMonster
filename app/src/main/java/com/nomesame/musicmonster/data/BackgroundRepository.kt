@@ -20,7 +20,9 @@ class BackgroundRepository(private val prefs: SharedPreferences) {
         prefs.edit().putBoolean(KEY_ENABLED, enabled).apply()
     }
 
-    fun uri(): Uri? = prefs.getString(KEY_URI, null)?.let(Uri::parse)
+    fun uri(): Uri? = runCatching {
+        prefs.getString(KEY_URI, null)?.let(Uri::parse)
+    }.getOrNull()
 
     fun setUri(uri: Uri?) {
         prefs.edit().apply {

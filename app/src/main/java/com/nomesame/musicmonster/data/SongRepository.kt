@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import android.net.Uri
 import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
+import com.nomesame.musicmonster.MusicLogic
 import com.nomesame.musicmonster.Song
 
 /**
@@ -19,7 +20,9 @@ class SongRepository(
 ) {
 
     fun load(): List<Song> {
-        val treeUri = prefs.getString("library_tree_uri", null)?.let { Uri.parse(it) }
+        val treeUri = runCatching {
+            prefs.getString("library_tree_uri", null)?.let { Uri.parse(it) }
+        }.getOrNull()
         if (treeUri != null) {
             return loadFromTree(treeUri)
         }
@@ -34,80 +37,71 @@ class SongRepository(
 
         val list = mutableListOf<Song>()
 
-        context.contentResolver.query(collection, projection, selection, null, sortOrder)?.use { c ->
-            val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-            val titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-            val durationCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+        try {
+            context.contentResolver.query(collection, projection, selection, null, sortOrder)?.use { c ->
+                val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                val titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                val durationCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
 
-            while (c.moveToNext()) {
-                val idLong = c.getLong(idCol)
-                val title = c.getString(titleCol) ?: "Unknown"
-                val durationMs = c.getLong(durationCol)
+                while (c.moveToNext()) {
+                    val idLong = c.getLong(idCol)
+                    val title = c.getString(titleCol) ?: "Unknown"
+                    val durationMs = c.getLong(durationCol)
 
-                val contentUri = ContentUris.withAppendedId(collection, idLong)
+                    val contentUri = ContentUris.withAppendedId(collection, idLong)
 
-                list.add(
-                    Song(
-                        id = idLong.toString(),
-                        title = title,
-                        uri = contentUri,
-                        durationMs = durationMs
-                    )
-                )
-            }
-        }
-
-return list.sortedWith(naturalSortComparator())
-    }
-
-    private fun loadFromTree(treeUri: Uri): List<Song> {
-        val root = DocumentFile.fromTreeUri(context, treeUri) ?: return emptyList()
-        val list = mutableListOf<Song>()
-        val stack = ArrayDeque<DocumentFile>()
-        stack.add(root)
-        while (stack.isNotEmpty()) {
-            val doc = stack.removeFirst()
-            if (doc.isDirectory) {
-                doc.listFiles().forEach { stack.add(it) }
-            } else {
-                val name = doc.name ?: "Unknown"
-                val type = doc.type
-                if (type?.startsWith("audio/") == true || name.endsWith(".mp3", true)
-                    || name.endsWith(".m4a", true) || name.endsWith(".flac", true)
-                    || name.endsWith(".wav", true) || name.endsWith(".ogg", true)
-                ) {
                     list.add(
                         Song(
-                            id = doc.uri.toString(),
-                            title = name.substringBeforeLast('.'),
-                            uri = doc.uri,
-                            durationMs = 0L
+                            id = idLong.toString(),
+                            title = title,
+                            uri = contentUri,
+                            durationMs = durationMs
                         )
                     )
                 }
             }
+        } catch (_: SecurityException) {
+            // No read permission (denied or revoked): treat as an empty
+            // library so the app degrades gracefully instead of crashing.
+            // The user can still grant access via the SAF folder picker.
+            list.clear()
         }
-return list.sortedWith(naturalSortComparator())
+
+        return MusicLogic.sortNatural(list)
     }
-}
 
-private fun naturalSortComparator(): Comparator<Song> = Comparator { a, b ->
-    compareNatural(a.title.lowercase(), b.title.lowercase())
-}
-
-private fun compareNatural(a: String, b: String): Int {
-    var i = 0; var j = 0
-    while (i < a.length && j < b.length) {
-        if (a[i].isDigit() && b[j].isDigit()) {
-            var numA = 0L; while (i < a.length && a[i].isDigit()) { numA = numA * 10 + (a[i] - '0'); i++ }
-            var numB = 0L; while (j < b.length && b[j].isDigit()) { numB = numB * 10 + (b[j] - '0'); j++ }
-            if (numA != numB) return numA.compareTo(numB)
-        } else {
-            if (a[i] != b[j]) return a[i].compareTo(b[j])
-            i++; j++
+    private fun loadFromTree(treeUri: Uri): List<Song> {
+        val root = runCatching { DocumentFile.fromTreeUri(context, treeUri) }.getOrNull()
+            ?: return emptyList()
+        val list = mutableListOf<Song>()
+        val stack = ArrayDeque<DocumentFile>()
+        stack.add(root)
+        try {
+            while (stack.isNotEmpty()) {
+                val doc = stack.removeFirst()
+                if (doc.isDirectory) {
+                    doc.listFiles().forEach { stack.add(it) }
+                } else {
+                    val name = doc.name ?: "Unknown"
+                    val type = doc.type
+                    if (MusicLogic.isAudioFile(name, type)) {
+                        list.add(
+                            Song(
+                                id = doc.uri.toString(),
+                                title = name.substringBeforeLast('.'),
+                                uri = doc.uri,
+                                durationMs = 0L
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: SecurityException) {
+            // The SAF tree permission can be revoked at any time (user revokes
+            // in Settings, or the grant expires). listFiles()/DocumentFile then
+            // throw SecurityException. Degrade to what we already collected
+            // instead of crashing — same invariant as the MediaStore path above.
         }
+        return MusicLogic.sortNatural(list)
     }
-    if (i < a.length) return 1
-    if (j < b.length) return -1
-    return 0
 }

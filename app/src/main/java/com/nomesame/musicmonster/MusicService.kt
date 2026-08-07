@@ -60,8 +60,6 @@ class MusicService : Service() {
     private var titles: List<String> = emptyList()
     private var libraryItems: Map<String, MediaItem> = emptyMap()
     private var libraryTitles: Map<String, String> = emptyMap()
-    private var libraryDurations: Map<String, Long> = emptyMap()
-    private var currentQueueIds: List<String> = emptyList()
     private val prefs: SharedPreferences by lazy {
         getSharedPreferences("music_prefs", MODE_PRIVATE)
     }
@@ -109,12 +107,10 @@ class MusicService : Service() {
         player = ExoPlayer.Builder(this).build()
         player.repeatMode = Player.REPEAT_MODE_ALL
 
-        val (items, itemTitles, itemDurations) = loadDevicePlaylist()
+        val (items, itemTitles, _) = loadDevicePlaylist()
         titles = itemTitles
         libraryItems = items.associateBy { it.mediaId }
         libraryTitles = items.zip(itemTitles).associate { it.first.mediaId to it.second }
-        libraryDurations = itemDurations
-        currentQueueIds = items.map { it.mediaId }
 
 
         if (items.isNotEmpty()) {
@@ -363,7 +359,9 @@ class MusicService : Service() {
 
     // Returns MediaItems, titles, and durations (ms) keyed by mediaId.
     private fun loadDevicePlaylist(): Triple<List<MediaItem>, List<String>, Map<String, Long>> {
-        val treeUri = prefs.getString("library_tree_uri", null)?.let { Uri.parse(it) }
+        val treeUri = runCatching {
+            prefs.getString("library_tree_uri", null)?.let { Uri.parse(it) }
+        }.getOrNull()
         if (treeUri != null) {
             return loadTreePlaylist(treeUri)
         }
@@ -419,13 +417,14 @@ val sortOrder = null
     }
 
     private fun loadTreePlaylist(treeUri: Uri): Triple<List<MediaItem>, List<String>, Map<String, Long>> {
-        val root = DocumentFile.fromTreeUri(this, treeUri)
+        val root = runCatching { DocumentFile.fromTreeUri(this, treeUri) }.getOrNull()
             ?: return Triple(emptyList(), emptyList(), emptyMap())
         val stack = ArrayDeque<DocumentFile>()
         val items = mutableListOf<MediaItem>()
         val titles = mutableListOf<String>()
         val durations = mutableMapOf<String, Long>()
         stack.add(root)
+        try {
         while (stack.isNotEmpty()) {
             val doc = stack.removeFirst()
             if (doc.isDirectory) {
@@ -433,13 +432,7 @@ val sortOrder = null
             } else {
                 val name = doc.name ?: continue
                 val type = doc.type
-                val isAudio = type?.startsWith("audio/") == true ||
-                    name.endsWith(".mp3", true) ||
-                    name.endsWith(".m4a", true) ||
-                    name.endsWith(".flac", true) ||
-                    name.endsWith(".wav", true) ||
-                    name.endsWith(".ogg", true)
-                if (isAudio) {
+                if (MusicLogic.isAudioFile(name, type)) {
                     val title = name.substringBeforeLast('.')
                     val uri = doc.uri
                     val mediaId = uri.toString()
@@ -454,15 +447,19 @@ val sortOrder = null
                 }
             }
         }
+        } catch (_: SecurityException) {
+            // Same as SongRepository: the SAF tree read can throw SecurityException
+            // if the grant was revoked/expired mid-scan. Keep whatever we already
+            // collected rather than killing the playback service.
+        }
         val combined = items.zip(titles).sortedWith(naturalTitleComparator())
         val sortedItems = combined.map { it.first }
         val sortedTitles = combined.map { it.second }
         return Triple(sortedItems, sortedTitles, durations)
     }
 
-    private fun naturalTitleComparator(): Comparator<Pair<MediaItem, String>> = Comparator { (_, a), (_, b) ->
-    compareNatural(a.lowercase(), b.lowercase())
-}
+    private fun naturalTitleComparator(): Comparator<Pair<MediaItem, String>> =
+        Comparator { (_, a), (_, b) -> MusicLogic.compareNatural(a, b) }
 
     private fun setPlaybackState(isPlaying: Boolean) {
         val actions =
@@ -526,8 +523,8 @@ val sortOrder = null
         val position = player.currentPosition.coerceAtLeast(0L)
         val contentView = RemoteViews(packageName, R.layout.notification_music_monster).apply {
             setTextViewText(R.id.notif_title, currentTitle)
-            setTextViewText(R.id.notif_time_current, formatTime(position))
-            setTextViewText(R.id.notif_time_duration, formatTime(duration))
+            setTextViewText(R.id.notif_time_current, MusicLogic.formatTime(position))
+            setTextViewText(R.id.notif_time_duration, MusicLogic.formatTime(duration))
             setProgressBar(
                 R.id.notif_progress,
                 duration.toInt().coerceAtLeast(1),
@@ -587,13 +584,6 @@ val sortOrder = null
             .build()
     }
 
-    private fun formatTime(timeMs: Long): String {
-        val totalSeconds = (timeMs / 1000).coerceAtLeast(0)
-        val minutes = totalSeconds / 60
-        val seconds = totalSeconds % 60
-        return String.format("%d:%02d", minutes, seconds)
-    }
-
     @SuppressLint("MissingPermission")
     private fun updateNotification(isPlaying: Boolean) {
         if (!canPostNotifications()) return
@@ -615,12 +605,10 @@ val sortOrder = null
     private fun reloadPlaylistPreservingCurrent() {
         val currentId = player.currentMediaItem?.mediaId
         val currentPosition = player.currentPosition
-        val (items, itemTitles, itemDurations) = loadDevicePlaylist()
+        val (items, itemTitles, _) = loadDevicePlaylist()
         titles = itemTitles
         libraryItems = items.associateBy { it.mediaId }
         libraryTitles = items.zip(itemTitles).associate { it.first.mediaId to it.second }
-        libraryDurations = itemDurations
-        currentQueueIds = items.map { it.mediaId }
         if (items.isEmpty()) {
             player.stop()
             updateSessionMetadata()
@@ -648,7 +636,6 @@ val sortOrder = null
         if (items.isEmpty()) return
         val titlesForPlaylist = ids.mapNotNull { libraryTitles[it] }
         titles = titlesForPlaylist
-        currentQueueIds = ids
         val startIndex = startId?.let { ids.indexOf(it) }?.takeIf { it >= 0 } ?: 0
         player.setMediaItems(items, startIndex, 0L)
         player.prepare()
@@ -669,10 +656,7 @@ val sortOrder = null
         }
     }
 
-    private fun buildShuffleSeed(): Long {
-        val maxDuration = currentQueueIds.maxOfOrNull { libraryDurations[it] ?: 0L } ?: 0L
-        return System.currentTimeMillis() + maxDuration + SystemClock.elapsedRealtime()
-    }
+    private fun buildShuffleSeed(): Long = MusicLogic.buildShuffleSeed()
 
     private fun startSleepTimer(durationMs: Long, fadeMs: Long) {
         cancelSleepTimer()
@@ -713,23 +697,6 @@ val sortOrder = null
         }
         fadeRunnable = runnable
         sleepHandler.post(runnable)
-    }
-
-    private fun compareNatural(a: String, b: String): Int {
-        var i = 0; var j = 0
-        while (i < a.length && j < b.length) {
-            if (a[i].isDigit() && b[j].isDigit()) {
-                var numA = 0L; while (i < a.length && a[i].isDigit()) { numA = numA * 10 + (a[i] - '0'); i++ }
-                var numB = 0L; while (j < b.length && b[j].isDigit()) { numB = numB * 10 + (b[j] - '0'); j++ }
-                if (numA != numB) return numA.compareTo(numB)
-            } else {
-                if (a[i] != b[j]) return a[i].compareTo(b[j])
-                i++; j++
-            }
-        }
-        if (i < a.length) return 1
-        if (j < b.length) return -1
-        return 0
     }
 
     private fun cancelSleepTimer() {

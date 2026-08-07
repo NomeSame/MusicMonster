@@ -46,7 +46,7 @@ android {
         release {
             signingConfig =
                 if (keystorePropertiesFile.exists()) signingConfigs.getByName("release") else null
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -62,6 +62,12 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    testOptions {
+        // Pure-JVM tests exercise MusicLogic and Song; let Android framework
+        // stubs (e.g. Uri.parse) return default values instead of throwing
+        // "not mocked", so fixtures can construct Songs on the JVM.
+        unitTests.isReturnDefaultValues = true
     }
 }
 
@@ -88,6 +94,11 @@ dependencies {
     implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0")
     testImplementation(libs.junit)
+    // Robolectric runs Android framework code (Uri, SharedPreferences,
+    // ContentResolver, ...) on the JVM, so unit tests can exercise repository
+    // logic and construct real Song fixtures without a device/emulator.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

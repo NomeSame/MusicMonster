@@ -49,19 +49,27 @@ class PaletteEngine(private val context: Context) {
  */
 internal fun decodeSampledBitmap(context: Context, uri: Uri, maxDim: Int): Bitmap? {
     val resolver = context.contentResolver
-    // Read once into a byte array — BitmapFactory.decodeStream relies on
-    // mark/reset which some ContentProvider streams don't support, causing
-    // decode to return null silently for JPEG etc. ByteArray decoding is
-    // safe and portable across all providers.
-    val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+    // Two independent streams, one per decode pass. Each openInputStream() yields
+    // a fresh, position-0 stream, so the inJustDecodeBounds pass and the sampled
+    // pass never rely on mark/reset (which many ContentProvider streams lack).
+    // This also avoids materializing the entire file in a heap byte array — the
+    // previous whole-file readBytes() could transiently OOM low-power devices
+    // when a very large/corrupt image was picked as the background.
+    // Bounds pass: inJustDecodeBounds makes decodeStream return null by design
+    // (the dimensions land in `opts`), so success is detected via opts.out*.
+    val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    val boundsValid = runCatching {
+        resolver.openInputStream(uri)?.use { s -> BitmapFactory.decodeStream(s, null, boundsOpts) }
+        boundsOpts.outWidth > 0 && boundsOpts.outHeight > 0
+    }.getOrDefault(false)
+    if (!boundsValid) return null
 
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-    val (w, h) = bounds.outWidth to bounds.outHeight
-    if (w <= 0 || h <= 0) return null
-
-    val opts = BitmapFactory.Options().apply { inSampleSize = computeInSampleSize(w, h, maxDim) }
-    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+    val sampleOpts = BitmapFactory.Options().apply {
+        inSampleSize = computeInSampleSize(boundsOpts.outWidth, boundsOpts.outHeight, maxDim)
+    }
+    return runCatching {
+        resolver.openInputStream(uri)?.use { s -> BitmapFactory.decodeStream(s, null, sampleOpts) }
+    }.getOrNull()
 }
 
 /**

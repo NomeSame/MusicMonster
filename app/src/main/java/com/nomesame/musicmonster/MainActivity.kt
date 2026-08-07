@@ -109,7 +109,8 @@ class MainActivity : ComponentActivity() {
             val accent by viewModel.accentColor.collectAsState()
             MyApplicationTheme(accent = accent) {
                 val controllerReady by viewModel.playbackConnection.isReady.collectAsState()
-                if (controllerReady) {
+                val playbackUnavailable by viewModel.playbackUnavailable.collectAsState()
+                if (controllerReady || playbackUnavailable) {
                     PlayerScreen(
                         viewModel = viewModel,
                         onPickFolder = { selectFolderLauncher.launch(null) },
