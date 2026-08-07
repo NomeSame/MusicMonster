@@ -26,3 +26,18 @@ gradle-cache/
 keystore.properties
 *.jks
 *.keystore
+
+# key backups
+*.bak
+*.OLD*
+
+# Project docs / agent memory — kept local, not in the repo (README.md stays tracked)
+AGENTS_CODE.md
+ARCHITECTURE.md
+TODO.md
+status.md
+status_archive.md
+BACKLOG.md
+
+# Local agent/tool settings
+.openclaude/

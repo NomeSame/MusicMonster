@@ -27,7 +27,7 @@ class PlaylistRepository(
 
     /** Parses persisted playlists, or null if none/invalid. */
     fun load(): Loaded? {
-        val raw = prefs.getString("playlists_json", null) ?: return null
+        val raw = prefs.stringOr("playlists_json", null) ?: return null
         val parsed = mutableListOf<Playlist>()
         try {
             val array = JSONArray(raw)
@@ -80,11 +80,31 @@ class PlaylistRepository(
             obj.put("songs", songsArray)
             array.put(obj)
         }
-        resolver.openOutputStream(uri)?.use { output ->
-            OutputStreamWriter(output).use { writer ->
-                writer.write(array.toString(2))
+        try {
+            resolver.openOutputStream(uri)?.use { output ->
+                OutputStreamWriter(output).use { writer ->
+                    writer.write(array.toString(2))
+                }
             }
+        } catch (_: Exception) {
+            // Stale or revoked SAF uri (FileNotFoundException, SecurityException,
+            // ...): a failed export must not crash the app. Nothing to roll back.
         }
+    }
+
+    /**
+     * Reads [uri] as text, or null if it can't be read. Split out from
+     * [importInto] so callers can do the (blocking) read on a background
+     * thread and the snapshot-state merge on the main thread.
+     */
+    fun readText(uri: Uri): String? = try {
+        resolver.openInputStream(uri)?.use { input ->
+            BufferedReader(InputStreamReader(input)).readText()
+        }
+    } catch (_: Exception) {
+        // Stale or revoked SAF uri (FileNotFoundException, SecurityException,
+        // ...): treat like "no readable file" -> null, caller shows nothing.
+        null
     }
 
     /**
@@ -92,10 +112,11 @@ class PlaylistRepository(
      * case-insensitive name), allocating ids from [currentSequence] as needed.
      * Returns the recomputed next sequence, or null if the file was invalid.
      */
-    fun importInto(uri: Uri, target: SnapshotStateList<Playlist>, currentSequence: Int): Int? {
-        val raw = resolver.openInputStream(uri)?.use { input ->
-            BufferedReader(InputStreamReader(input)).readText()
-        } ?: return null
+    fun importInto(uri: Uri, target: SnapshotStateList<Playlist>, currentSequence: Int): Int? =
+        readText(uri)?.let { importInto(it, target, currentSequence) }
+
+    /** Same merge as above, on already-read JSON [raw]. */
+    fun importInto(raw: String, target: SnapshotStateList<Playlist>, currentSequence: Int): Int? {
         var sequence = currentSequence
         try {
             val array = JSONArray(raw)
@@ -114,8 +135,13 @@ class PlaylistRepository(
                 }
                 val existing = target.firstOrNull { it.id == id || it.name.equals(name, true) }
                 if (existing != null) {
+                    // Hash the existing ids once instead of scanning the list
+                    // per imported song: merging a large import into a large
+                    // playlist was quadratic, and this runs on the UI thread
+                    // because it mutates snapshot state.
+                    val present = existing.songIds.toHashSet()
                     songIds.forEach { songId ->
-                        if (!existing.songIds.contains(songId)) {
+                        if (present.add(songId)) {
                             existing.songIds.add(songId)
                         }
                     }

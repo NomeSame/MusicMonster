@@ -20,6 +20,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -179,7 +180,7 @@ fun EqualizerPanel(
             onValueChange = { newValue ->
                 val value = newValue.toInt()
                 onBassBoostStrength(value)
-                bassBoost?.setStrength(value.toShort())
+                runCatching { bassBoost?.setStrength(value.toShort()) }
             },
             colors = SliderDefaults.colors(
                 thumbColor = accent,
@@ -188,28 +189,48 @@ fun EqualizerPanel(
             )
         )
 
-        val bandCount = equalizer.numberOfBands.toInt()
-        val range = equalizer.bandLevelRange
-        val minLevel = range[0].toInt()
-        val maxLevel = range[1].toInt()
-        if (eqBandCount.value != bandCount || eqBandLevels.size != bandCount) {
-            eqBandLevels.clear()
-            repeat(bandCount) { bandIndex ->
-                val band = bandIndex.toShort()
-                eqBandLevels.add(equalizer.getBandLevel(band).toInt())
-            }
-            eqBandCount.value = bandCount
-        } else {
-            for (bandIndex in 0 until bandCount) {
-                val band = bandIndex.toShort()
-                equalizer.setBandLevel(band, eqBandLevels[bandIndex].toShort())
+        // Reading the effect can throw on OEM AudioFX implementations whose
+        // session has gone away underneath us. Inside composition that would
+        // take down the whole UI, so the panel degrades to "no bands" instead.
+        val bandInfo = remember(equalizer) {
+            runCatching {
+                val count = equalizer.numberOfBands.toInt()
+                val levelRange = equalizer.bandLevelRange
+                Triple(count, levelRange[0].toInt(), levelRange[1].toInt())
+            }.getOrNull()
+        } ?: return@Column
+        val (bandCount, minLevel, maxLevel) = bandInfo
+
+        // Side effect, not composition work: this used to run on every
+        // recomposition, and PlayerScreen recomposes once a second from the
+        // position ticker — one AudioFX IPC per band per second while the
+        // panel is open.
+        LaunchedEffect(equalizer, bandCount) {
+            runCatching {
+                if (eqBandCount.value != bandCount || eqBandLevels.size != bandCount) {
+                    eqBandLevels.clear()
+                    repeat(bandCount) { bandIndex ->
+                        eqBandLevels.add(equalizer.getBandLevel(bandIndex.toShort()).toInt())
+                    }
+                    eqBandCount.value = bandCount
+                } else {
+                    for (bandIndex in 0 until bandCount) {
+                        equalizer.setBandLevel(
+                            bandIndex.toShort(),
+                            eqBandLevels[bandIndex].toShort()
+                        )
+                    }
+                }
             }
         }
 
         repeat(bandCount) { bandIndex ->
             val band = bandIndex.toShort()
-            val centerHz = eqBandHz.getOrNull(bandIndex) ?: (equalizer.getCenterFreq(band) / 1000).toInt()
-            val level = eqBandLevels[bandIndex]
+            val centerHz = eqBandHz.getOrNull(bandIndex)
+                ?: runCatching { (equalizer.getCenterFreq(band) / 1000).toInt() }.getOrDefault(0)
+            // The LaunchedEffect above fills eqBandLevels asynchronously, so on
+            // the first frame it can still be shorter than bandCount.
+            val level = eqBandLevels.getOrNull(bandIndex) ?: 0
 
             Text(
                 text = "${centerHz} Hz",
@@ -222,8 +243,8 @@ fun EqualizerPanel(
                 valueRange = minLevel.toFloat()..maxLevel.toFloat(),
                 onValueChange = { newValue ->
                     val newLevel = newValue.toInt()
-                    eqBandLevels[bandIndex] = newLevel
-                    equalizer.setBandLevel(band, newLevel.toShort())
+                    if (bandIndex < eqBandLevels.size) eqBandLevels[bandIndex] = newLevel
+                    runCatching { equalizer.setBandLevel(band, newLevel.toShort()) }
                 },
                 colors = SliderDefaults.colors(
                     thumbColor = accent,

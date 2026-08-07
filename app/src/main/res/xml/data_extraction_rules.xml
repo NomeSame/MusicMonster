@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
+   Backup/transfer rules (API 31+).
+
+   music_prefs.xml is excluded on purpose. It stores SAF `content://` grants
+   (library_tree_uri, custom_bg_uri) and song ids that are either SAF URIs or
+   MediaStore row ids. None of those survive a restore onto a different device
+   or a reinstall: the URI permission is gone and MediaStore ids are re-issued.
+   Restoring them would leave the app pointing at unreadable URIs — an empty
+   library and a missing background with no way for the user to tell why.
+   A clean first-run state is the recoverable outcome.
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <exclude domain="sharedpref" path="music_prefs.xml" />
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude domain="sharedpref" path="music_prefs.xml" />
     </device-transfer>
-    -->
 </data-extraction-rules>

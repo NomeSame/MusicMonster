@@ -3,6 +3,7 @@ package com.nomesame.musicmonster
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -33,12 +34,38 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         if (uri != null) {
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-            contentResolver.takePersistableUriPermission(uri, flags)
+            // Give the previous folder's grant back before taking a new one:
+            // persisted URI permissions are capped per app (128 below API 30),
+            // and re-picking a folder otherwise leaks one grant every time.
+            viewModel.libraryTreeUri()?.takeIf { it != uri }?.let(::releaseReadPermission)
+            takeReadPermission(uri, persistTree = true)
             viewModel.saveLibraryTreeUri(uri)
             viewModel.loadSongs()
             viewModel.startMusicService()
+        }
+    }
+
+    /**
+     * Persisting the grant is best-effort: some document providers (OEM file
+     * managers, cloud providers) hand out a URI they refuse to persist and
+     * throw SecurityException here. The folder still works for this session, so
+     * a failed persist must not take the app down.
+     */
+    private fun takeReadPermission(uri: Uri, persistTree: Boolean) {
+        val flags = if (persistTree) {
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        } else {
+            Intent.FLAG_GRANT_READ_URI_PERMISSION
+        }
+        runCatching { contentResolver.takePersistableUriPermission(uri, flags) }
+    }
+
+    private fun releaseReadPermission(uri: Uri) {
+        runCatching {
+            contentResolver.releasePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
         }
     }
 
@@ -63,9 +90,8 @@ class MainActivity : ComponentActivity() {
     ) { uri ->
         if (uri != null) {
             // Persist read access so the background survives restarts.
-            contentResolver.takePersistableUriPermission(
-                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
+            viewModel.customBgUri.value?.takeIf { it != uri }?.let(::releaseReadPermission)
+            takeReadPermission(uri, persistTree = false)
             viewModel.onCustomBackgroundPicked(uri)
         }
     }
@@ -75,8 +101,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            viewModel.loadSongs()
-            viewModel.startMusicService()
+            loadLibraryIfPossible()
         }
     }
 
@@ -101,7 +126,8 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
 
-        requestAudioPermissionAndLoad()
+        requestAudioPermissionIfNeeded()
+        loadLibraryIfPossible()
         requestNotificationPermissionIfNeeded()
         viewModel.loadPlaylists()
 
@@ -109,7 +135,8 @@ class MainActivity : ComponentActivity() {
             val accent by viewModel.accentColor.collectAsState()
             MyApplicationTheme(accent = accent) {
                 val controllerReady by viewModel.playbackConnection.isReady.collectAsState()
-                if (controllerReady) {
+                val playbackUnavailable by viewModel.playbackUnavailable.collectAsState()
+                if (controllerReady || playbackUnavailable) {
                     PlayerScreen(
                         viewModel = viewModel,
                         onPickFolder = { selectFolderLauncher.launch(null) },
@@ -131,29 +158,40 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Ensure permission is still granted
-        requestAudioPermissionAndLoad()
+        // Load only — never re-ask. Asking here fired the permission request on
+        // every single resume; from the second denial on, API 30+ auto-denies
+        // without showing anything, so the user was stuck with an empty library
+        // and no way to see why.
+        loadLibraryIfPossible()
     }
 
-    private fun requestAudioPermissionAndLoad() {
-        val permission =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                Manifest.permission.READ_MEDIA_AUDIO
-            else
-                Manifest.permission.READ_EXTERNAL_STORAGE
-
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                permission
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissionLauncher.launch(permission)
+    private val audioPermission: String
+        get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_AUDIO
         } else {
-            if (viewModel.songs.value.isEmpty()) {
-                viewModel.loadSongs()
-                // Only start/reload service on first load — not on rotation
-                viewModel.startMusicService()
-            }
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+
+    private fun hasAudioPermission(): Boolean =
+        ActivityCompat.checkSelfPermission(this, audioPermission) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun requestAudioPermissionIfNeeded() {
+        // A user who already picked a SAF folder reads their music through that
+        // grant; demanding the MediaStore permission on top of it is pointless.
+        if (viewModel.libraryTreeUri() != null || hasAudioPermission()) return
+        requestPermissionLauncher.launch(audioPermission)
+    }
+
+    private fun loadLibraryIfPossible() {
+        // SAF folder counts as access on its own — without this check, denying
+        // the audio permission left folder-based libraries permanently empty
+        // even though nothing about them needs that permission.
+        if (viewModel.libraryTreeUri() == null && !hasAudioPermission()) return
+        if (viewModel.songs.value.isEmpty()) {
+            viewModel.loadSongs()
+            // Only start/reload service on first load — not on rotation
+            viewModel.startMusicService()
         }
     }
 

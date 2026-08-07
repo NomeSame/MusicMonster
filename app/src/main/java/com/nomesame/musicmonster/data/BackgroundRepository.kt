@@ -14,13 +14,15 @@ class BackgroundRepository(private val prefs: SharedPreferences) {
     // Defaults to true: the app ships showing the bundled default background
     // image; the toggle turns the image (default or custom) off in favor of the
     // plain gradient.
-    fun isEnabled(): Boolean = prefs.getBoolean(KEY_ENABLED, true)
+    fun isEnabled(): Boolean = prefs.booleanOr(KEY_ENABLED, true)
 
     fun setEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_ENABLED, enabled).apply()
     }
 
-    fun uri(): Uri? = prefs.getString(KEY_URI, null)?.let(Uri::parse)
+    fun uri(): Uri? = runCatching {
+        prefs.stringOr(KEY_URI, null)?.let(Uri::parse)
+    }.getOrNull()
 
     fun setUri(uri: Uri?) {
         prefs.edit().apply {
@@ -29,7 +31,7 @@ class BackgroundRepository(private val prefs: SharedPreferences) {
     }
 
     /** Dim strength of the dark scrim over the image, 0f (bright) .. 1f (black). */
-    fun scrim(): Float = prefs.getFloat(KEY_SCRIM, DEFAULT_SCRIM).coerceIn(0f, 1f)
+    fun scrim(): Float = prefs.floatOr(KEY_SCRIM, DEFAULT_SCRIM).coerceIn(0f, 1f)
 
     fun setScrim(value: Float) {
         prefs.edit().putFloat(KEY_SCRIM, value.coerceIn(0f, 1f)).apply()

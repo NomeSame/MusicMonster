@@ -3,6 +3,8 @@ package com.nomesame.musicmonster.ui.theme
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import androidx.compose.ui.graphics.Color
 import androidx.palette.graphics.Palette
@@ -25,8 +27,14 @@ class PaletteEngine(private val context: Context) {
         runCatching {
             val bitmap = decodeSampledBitmap(context, uri, PALETTE_SAMPLE_DIM)
                 ?: return@runCatching null
-            val palette = Palette.from(bitmap).generate()
-            bitmap.recycle()
+            // finally, not a trailing call: if generate() throws (it does on
+            // some malformed images) the bitmap's native memory would never be
+            // freed, and background pickers are exactly where big bitmaps live.
+            val palette = try {
+                Palette.from(bitmap).generate()
+            } finally {
+                bitmap.recycle()
+            }
             val rgb = palette.vibrantSwatch?.rgb
                 ?: palette.lightVibrantSwatch?.rgb
                 ?: palette.darkVibrantSwatch?.rgb
@@ -49,19 +57,67 @@ class PaletteEngine(private val context: Context) {
  */
 internal fun decodeSampledBitmap(context: Context, uri: Uri, maxDim: Int): Bitmap? {
     val resolver = context.contentResolver
-    // Read once into a byte array — BitmapFactory.decodeStream relies on
-    // mark/reset which some ContentProvider streams don't support, causing
-    // decode to return null silently for JPEG etc. ByteArray decoding is
-    // safe and portable across all providers.
-    val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+    // Two independent streams, one per decode pass. Each openInputStream() yields
+    // a fresh, position-0 stream, so the inJustDecodeBounds pass and the sampled
+    // pass never rely on mark/reset (which many ContentProvider streams lack).
+    // This also avoids materializing the entire file in a heap byte array — the
+    // previous whole-file readBytes() could transiently OOM low-power devices
+    // when a very large/corrupt image was picked as the background.
+    // Bounds pass: inJustDecodeBounds makes decodeStream return null by design
+    // (the dimensions land in `opts`), so success is detected via opts.out*.
+    val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    val boundsValid = runCatching {
+        resolver.openInputStream(uri)?.use { s -> BitmapFactory.decodeStream(s, null, boundsOpts) }
+        boundsOpts.outWidth > 0 && boundsOpts.outHeight > 0
+    }.getOrDefault(false)
+    if (!boundsValid) return null
 
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-    val (w, h) = bounds.outWidth to bounds.outHeight
-    if (w <= 0 || h <= 0) return null
+    val sampleOpts = BitmapFactory.Options().apply {
+        inSampleSize = computeInSampleSize(boundsOpts.outWidth, boundsOpts.outHeight, maxDim)
+    }
+    val decoded = runCatching {
+        resolver.openInputStream(uri)?.use { s -> BitmapFactory.decodeStream(s, null, sampleOpts) }
+    }.getOrNull() ?: return null
+    return applyExifRotation(context, uri, decoded)
+}
 
-    val opts = BitmapFactory.Options().apply { inSampleSize = computeInSampleSize(w, h, maxDim) }
-    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+/**
+ * Rotates [bitmap] according to the image's EXIF orientation tag.
+ *
+ * BitmapFactory ignores that tag. Phone cameras habitually store the sensor
+ * image unrotated and record the orientation in EXIF instead, so a background
+ * picked straight out of the camera roll lands sideways or upside down —
+ * on whichever devices/camera apps write it that way, which is why it looks
+ * like it "only happens on some phones". Returns the input unchanged when
+ * there is nothing to rotate or the tag can't be read.
+ */
+private fun applyExifRotation(context: Context, uri: Uri, bitmap: Bitmap): Bitmap {
+    val degrees = runCatching {
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            when (
+                ExifInterface(stream).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL
+                )
+            ) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                else -> 0f
+            }
+        } ?: 0f
+    }.getOrDefault(0f)
+    if (degrees == 0f) return bitmap
+    return runCatching {
+        val matrix = Matrix().apply { postRotate(degrees) }
+        val rotated = Bitmap.createBitmap(
+            bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+        )
+        // createBitmap can hand back the same instance when nothing changed;
+        // recycling it then would hand the caller a dead bitmap.
+        if (rotated !== bitmap) bitmap.recycle()
+        rotated
+    }.getOrDefault(bitmap)
 }
 
 /**

@@ -2,6 +2,7 @@ package com.nomesame.musicmonster.audio
 
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
+import java.util.Locale
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 
@@ -28,29 +29,28 @@ class EqualizerController {
     var bassBoost: BassBoost? = null
         private set
 
-    fun buildPresetLevels(label: String, equalizer: Equalizer): List<Int> {
+    /**
+     * Preset curve for [label]. Every call into [equalizer] here goes through
+     * the OEM AudioFX implementation, which is free to throw (dead session,
+     * vendor effect that reports presets it can't apply); a preset button must
+     * never be able to crash the app, so failures fall back to a flat curve.
+     */
+    fun buildPresetLevels(label: String, equalizer: Equalizer): List<Int> =
+        runCatching { buildPresetLevelsUnsafe(label, equalizer) }
+            .getOrElse { List(eqBandCount.value.coerceAtLeast(0)) { 0 } }
+
+    private fun buildPresetLevelsUnsafe(label: String, equalizer: Equalizer): List<Int> {
         val bandCount = equalizer.numberOfBands.toInt()
         val range = equalizer.bandLevelRange
         val minLevel = range[0].toInt()
         val maxLevel = range[1].toInt()
-        val boost = (maxLevel * 0.75f).toInt()
-        val mid = (maxLevel * 0.35f).toInt()
-        val cut = (minLevel * 0.6f).toInt()
-
-        val curve = when (label.lowercase()) {
-            "metal" -> listOf(boost, mid, 0, mid, boost)
-            "rock" -> listOf(mid, boost, mid, boost, mid)
-            "classic" -> listOf(cut, 0, mid, mid, cut)
-            "pop" -> listOf(0, mid, boost, mid, 0)
-            "flat" -> listOf(0, 0, 0, 0, 0)
-            else -> listOf(0, 0, 0, 0, 0)
-        }
+        val curve = curveFor(label, minLevel, maxLevel)
 
         if (equalizer.numberOfPresets > 0) {
             for (i in 0 until equalizer.numberOfPresets) {
                 val preset = i.toShort()
-                val name = equalizer.getPresetName(preset).lowercase()
-                if (name.contains(label.lowercase())) {
+                val name = equalizer.getPresetName(preset).lowercase(Locale.ROOT)
+                if (name.contains(label.lowercase(Locale.ROOT))) {
                     equalizer.usePreset(preset)
                     return List(bandCount) { bandIndex ->
                         equalizer.getBandLevel(bandIndex.toShort()).toInt()
@@ -63,6 +63,31 @@ class EqualizerController {
             val idx = (bandIndex.toFloat() / (bandCount - 1).coerceAtLeast(1)).times(4).toInt()
                 .coerceIn(0, 4)
             curve[idx].coerceIn(minLevel, maxLevel)
+        }
+    }
+
+    companion object {
+        /**
+         * The five-point gain curve for a preset [label], scaled to the
+         * device's own [minLevel]/[maxLevel] band range. Pure and device-free
+         * so the label matching can be unit tested.
+         *
+         * Locale.ROOT matters here: the platform default lowercase() maps
+         * "Classic" to a dotless-i "classıc" on Turkish and Azeri devices, so
+         * no label ever matched and every preset silently collapsed to flat —
+         * the same locale trap the sort comparator already guards against.
+         */
+        fun curveFor(label: String, minLevel: Int, maxLevel: Int): List<Int> {
+            val boost = (maxLevel * 0.75f).toInt()
+            val mid = (maxLevel * 0.35f).toInt()
+            val cut = (minLevel * 0.6f).toInt()
+            return when (label.lowercase(Locale.ROOT)) {
+                "metal" -> listOf(boost, mid, 0, mid, boost)
+                "rock" -> listOf(mid, boost, mid, boost, mid)
+                "classic" -> listOf(cut, 0, mid, mid, cut)
+                "pop" -> listOf(0, mid, boost, mid, 0)
+                else -> listOf(0, 0, 0, 0, 0)
+            }
         }
     }
 

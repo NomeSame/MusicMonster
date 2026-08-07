@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nomesame.musicmonster.MainViewModel
+import com.nomesame.musicmonster.MusicLogic
 import com.nomesame.musicmonster.Song
 import com.nomesame.musicmonster.ui.components.AccentPickerDialog
 import com.nomesame.musicmonster.ui.components.AppBackground
@@ -95,10 +96,14 @@ fun PlayerScreen(
     val durationMs = playbackConnection.duration.collectAsState().value
     val positionMs = playbackConnection.position.collectAsState().value
     val effectivePosition = if (isScrubbing) scrubPositionMs else positionMs
-    var playlistTargetSong by remember { mutableStateOf<Song?>(null) }
+    // Store only the target song's id (a String) so the "Add to Playlist"
+    // dialog survives rotation and process death, matching newPlaylistName below.
+    // The full Song is re-resolved from the loaded `songs` list when needed.
+    var playlistTargetSongId by rememberSaveable { mutableStateOf<String?>(null) }
     var newPlaylistName by rememberSaveable { mutableStateOf("") }
+    val playlistTargetSong = songs.firstOrNull { it.id == playlistTargetSongId }
     val showPlaylistDialog = playlistTargetSong != null
-    var showAccentPicker by remember { mutableStateOf(false) }
+    var showAccentPicker by rememberSaveable { mutableStateOf(false) }
     val swipePagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
     val listState = rememberLazyListState()
 
@@ -300,7 +305,7 @@ fun PlayerScreen(
                                         textWarm = textWarm,
                                         textMuted = textMuted,
                                         accent = iconGlow,
-                                        formatRemaining = { formatHms(it) },
+                                        formatRemaining = { MusicLogic.formatTime(it) },
                                         onStartTimer = { d, f -> viewModel.startSleepTimer(d, f) },
                                         onCancelTimer = { viewModel.cancelSleepTimer() }
                                     )
@@ -353,13 +358,13 @@ fun PlayerScreen(
                             itemsIndexed(songs) { index, song ->
                                 SongRow(
                                     title = song.title,
-                                    durationLabel = formatTime(song.durationMs),
+                                    durationLabel = MusicLogic.formatTime(song.durationMs),
                                     isCurrent = song.id == currentId,
                                     textWarm = textWarm,
                                     textMuted = textMuted,
                                     accent = iconGlow,
                                     onClick = { playbackConnection.playFromMediaId(song.id) },
-                                    onLongClick = { playlistTargetSong = song }
+                                    onLongClick = { playlistTargetSongId = song.id }
                                 )
                                 if (index < songs.lastIndex) {
                                     Divider(color = dividerWarm)
@@ -441,12 +446,12 @@ fun PlayerScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = formatTime(effectivePosition),
+                                text = MusicLogic.formatTime(effectivePosition),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = textWarm
                             )
                             Text(
-                                text = formatTime(durationMs),
+                                text = MusicLogic.formatTime(durationMs),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = textWarm
                             )
@@ -511,7 +516,7 @@ fun PlayerScreen(
             if (showPlaylistDialog) {
                 AlertDialog(
                     onDismissRequest = {
-                        playlistTargetSong = null
+                        playlistTargetSongId = null
                         newPlaylistName = ""
                     },
                     title = {
@@ -537,7 +542,7 @@ fun PlayerScreen(
                                             if (song != null) {
                                                 viewModel.addSongToPlaylist(playlist, song)
                                             }
-                                            playlistTargetSong = null
+                                            playlistTargetSongId = null
                                             newPlaylistName = ""
                                         }
                                     ) {
@@ -568,7 +573,7 @@ fun PlayerScreen(
                             if (name.isNotEmpty()) {
                                 viewModel.createPlaylist(name, playlistTargetSong)
                             }
-                            playlistTargetSong = null
+                            playlistTargetSongId = null
                             newPlaylistName = ""
                         }) {
                             Text("Create")
@@ -576,7 +581,7 @@ fun PlayerScreen(
                     },
                     dismissButton = {
                         Button(onClick = {
-                            playlistTargetSong = null
+                            playlistTargetSongId = null
                             newPlaylistName = ""
                         }) {
                             Text("Close")
@@ -640,17 +645,3 @@ fun PlayerScreen(
     }
 }
 
-private fun formatTime(timeMs: Long): String {
-    val totalSeconds = (timeMs / 1000).coerceAtLeast(0)
-    val minutes = totalSeconds / 60
-    val seconds = totalSeconds % 60
-    return String.format("%d:%02d", minutes, seconds)
-}
-
-private fun formatHms(timeMs: Long): String {
-    val totalSeconds = (timeMs / 1000).coerceAtLeast(0)
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return String.format("%d:%02d:%02d", hours, minutes, seconds)
-}

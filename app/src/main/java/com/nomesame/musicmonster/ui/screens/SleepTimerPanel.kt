@@ -104,7 +104,7 @@ fun SleepTimerPanel(
             )
             OutlinedTextField(
                 value = hoursText,
-                onValueChange = { hoursText = it.filter(Char::isDigit).take(2) },
+                onValueChange = { hoursText = it.filter { c -> c in '0'..'9' }.take(2) },
                 label = { Text("Hours", color = textMuted) },
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
                 colors = fieldColors,
@@ -114,7 +114,7 @@ fun SleepTimerPanel(
             )
             OutlinedTextField(
                 value = minutesText,
-                onValueChange = { minutesText = it.filter(Char::isDigit).take(2) },
+                onValueChange = { minutesText = it.filter { c -> c in '0'..'9' }.take(2) },
                 label = { Text("Minutes", color = textMuted) },
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
                 colors = fieldColors,
@@ -124,7 +124,7 @@ fun SleepTimerPanel(
             )
             OutlinedTextField(
                 value = secondsText,
-                onValueChange = { secondsText = it.filter(Char::isDigit).take(2) },
+                onValueChange = { secondsText = it.filter { c -> c in '0'..'9' }.take(2) },
                 label = { Text("Seconds", color = textMuted) },
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
                 colors = fieldColors,
