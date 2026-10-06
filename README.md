@@ -71,7 +71,7 @@ Explore the playlist, equalizer, and personalization screens below.
   <img src="docs/3-equalizer.jpg" alt="3. Equalizer — bands, presets, and bass boost" width="300">
 </p>
 
-### 4. Personalisierung
+### 4. Personalisation
 
 <p align="center">
   <img src="docs/4-personalisierung.jpg" alt="4. Personalisierung — color and background settings" width="300">
