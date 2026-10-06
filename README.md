@@ -5,11 +5,16 @@ organize playlists, shape the sound, and make the player look your way.
 
 **Android 7.0 or newer · No account required · No Internet permission**
 
-<p align="center">
-  <img src="docs/hero.png" alt="Music Monster player with a custom background" width="300">
-</p>
+### 1. Hauptansicht
 
-<p align="center"><sub>Player preview from an earlier release.</sub></p>
+> **Screenshot placeholder:** the music library and player during playback.
+> Image file: `docs/1-hauptansicht.png`
+
+<!-- Replace the placeholder above with this image block once the screenshot exists:
+<p align="center">
+  <img src="docs/1-hauptansicht.png" alt="1. Hauptansicht — music library and player" width="300">
+</p>
+-->
 
 ## ⬇️ Download & install
 
@@ -54,6 +59,44 @@ enabled. Review any warning before installing; a warning is not proof that an AP
   player-card transparency, and an optional accent color extracted from your image.
 - **Compact navigation:** pull down the song list to reveal the Playlists, Equalizer,
   and Sleep Timer panels, then swipe between them.
+
+## 📷 More screenshots
+
+The screenshots follow this order: **1. Hauptansicht → 2. Playlists → 3. Equalizer → 4. Personalisierung**.
+The main view belongs at the top of this README; the remaining views go here.
+
+### 2. Playlists
+
+> **Screenshot placeholder:** an open playlist containing several songs.
+> Image file: `docs/2-playlists.png`
+
+<!-- Replace the placeholder above with this image block once the screenshot exists:
+<p align="center">
+  <img src="docs/2-playlists.png" alt="2. Playlists — a playlist with songs" width="300">
+</p>
+-->
+
+### 3. Equalizer
+
+> **Screenshot placeholder:** equalizer bands, presets, and bass boost controls.
+> Image file: `docs/3-equalizer.png`
+
+<!-- Replace the placeholder above with this image block once the screenshot exists:
+<p align="center">
+  <img src="docs/3-equalizer.png" alt="3. Equalizer — bands, presets, and bass boost" width="300">
+</p>
+-->
+
+### 4. Personalisierung
+
+> **Screenshot placeholder:** accent color and custom background settings.
+> Image file: `docs/4-personalisierung.png`
+
+<!-- Replace the placeholder above with this image block once the screenshot exists:
+<p align="center">
+  <img src="docs/4-personalisierung.png" alt="4. Personalisierung — color and background settings" width="300">
+</p>
+-->
 
 ## 🔒 Privacy & permissions
 
