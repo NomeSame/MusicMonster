@@ -7,14 +7,9 @@ organize playlists, shape the sound, and make the player look your way.
 
 ### 1. Hauptansicht
 
-> **Screenshot placeholder:** the music library and player during playback.
-> Image file: `docs/1-hauptansicht.png`
-
-<!-- Replace the placeholder above with this image block once the screenshot exists:
 <p align="center">
   <img src="docs/1-hauptansicht.png" alt="1. Hauptansicht — music library and player" width="300">
 </p>
--->
 
 ## ⬇️ Download & install
 
@@ -62,41 +57,25 @@ enabled. Review any warning before installing; a warning is not proof that an AP
 
 ## 📷 More screenshots
 
-The screenshots follow this order: **1. Hauptansicht → 2. Playlists → 3. Equalizer → 4. Personalisierung**.
-The main view belongs at the top of this README; the remaining views go here.
+Explore the playlist, equalizer, and personalization screens below.
 
 ### 2. Playlists
 
-> **Screenshot placeholder:** an open playlist containing several songs.
-> Image file: `docs/2-playlists.png`
-
-<!-- Replace the placeholder above with this image block once the screenshot exists:
 <p align="center">
-  <img src="docs/2-playlists.png" alt="2. Playlists — a playlist with songs" width="300">
+  <img src="docs/2-playlists.jpg" alt="2. Playlists — a playlist with songs" width="300">
 </p>
--->
 
 ### 3. Equalizer
 
-> **Screenshot placeholder:** equalizer bands, presets, and bass boost controls.
-> Image file: `docs/3-equalizer.png`
-
-<!-- Replace the placeholder above with this image block once the screenshot exists:
 <p align="center">
-  <img src="docs/3-equalizer.png" alt="3. Equalizer — bands, presets, and bass boost" width="300">
+  <img src="docs/3-equalizer.jpg" alt="3. Equalizer — bands, presets, and bass boost" width="300">
 </p>
--->
 
 ### 4. Personalisierung
 
-> **Screenshot placeholder:** accent color and custom background settings.
-> Image file: `docs/4-personalisierung.png`
-
-<!-- Replace the placeholder above with this image block once the screenshot exists:
 <p align="center">
-  <img src="docs/4-personalisierung.png" alt="4. Personalisierung — color and background settings" width="300">
+  <img src="docs/4-personalisierung.jpg" alt="4. Personalisierung — color and background settings" width="300">
 </p>
--->
 
 ## 🔒 Privacy & permissions
 
