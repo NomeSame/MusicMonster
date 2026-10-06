@@ -31,13 +31,13 @@ keystore.properties
 *.bak
 *.OLD*
 
-# Project docs / agent memory — kept local, not in the repo (README.md stays tracked)
-AGENTS_CODE.md
-ARCHITECTURE.md
-TODO.md
-status.md
-status_archive.md
-BACKLOG.md
+# Markdown planning stays private; only the root public README is shareable.
+*.[mM][dD]
+!/README.md
 
 # Local agent/tool settings
 .openclaude/
+
+# Local test review reports
+test-review-*.log
+TEST_REVIEW.md

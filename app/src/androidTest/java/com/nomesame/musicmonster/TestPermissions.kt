@@ -27,7 +27,7 @@ object TestPermissions {
                 add(android.Manifest.permission.POST_NOTIFICATIONS)
             } else {
                 add(android.Manifest.permission.READ_EXTERNAL_STORAGE)
-                add(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                if (Build.VERSION.SDK_INT <= 28) add(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
             }
         }
         permissions.forEach { grant(context, it) }
@@ -53,6 +53,9 @@ object TestPermissions {
                 InstrumentationRegistry.getInstrumentation().uiAutomation
                     .grantRuntimePermission(context.packageName, permission)
             }
+        }
+        check(context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) {
+            "Required test permission was not granted: $permission"
         }
     }
 

@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaControllerCompat
 import android.support.v4.media.session.MediaSessionCompat
@@ -31,6 +32,8 @@ class PlaybackConnection(private val context: Context) {
      * itself inside its own initializer.
      */
     private lateinit var pollRunnable: Runnable
+    private var callback: MediaControllerCompat.Callback? = null
+    private var connected = false
 
     private val _isReady = MutableStateFlow(false)
     val isReady: StateFlow<Boolean> = _isReady.asStateFlow()
@@ -75,15 +78,18 @@ class PlaybackConnection(private val context: Context) {
         tokenProvider: () -> MediaSessionCompat.Token?,
         onUnavailable: (() -> Unit)? = null
     ) {
-        val startedAt = System.currentTimeMillis()
+        if (connected) return
+        connected = true
+        val startedAt = SystemClock.elapsedRealtime()
         var unavailableNotified = false
         pollRunnable = Runnable {
+            if (!connected) return@Runnable
             val token = tokenProvider()
             if (token == null) {
                 // Still no token: keep polling. Only the "unavailable"
                 // signal is one-shot (late service starts still connect).
                 if (!unavailableNotified &&
-                    System.currentTimeMillis() - startedAt >= TIMEOUT_MS
+                    SystemClock.elapsedRealtime() - startedAt >= TIMEOUT_MS
                 ) {
                     unavailableNotified = true
                     onUnavailable?.invoke()
@@ -107,26 +113,30 @@ class PlaybackConnection(private val context: Context) {
         mediaController = controller
         boundToken = token
 
-        controller.registerCallback(object : MediaControllerCompat.Callback() {
+        val registered = object : MediaControllerCompat.Callback() {
             override fun onPlaybackStateChanged(state: PlaybackStateCompat?) {
+                if (mediaController !== controller) return
                 _isPlaying.value = state?.state == PlaybackStateCompat.STATE_PLAYING
-                _position.value = state?.position ?: 0L
+                _position.value = (state?.position ?: 0L).coerceAtLeast(0L)
             }
 
             override fun onMetadataChanged(metadata: MediaMetadataCompat?) {
+                if (mediaController !== controller) return
                 _nowPlayingTitle.value =
                     metadata?.getString(MediaMetadataCompat.METADATA_KEY_TITLE)
                 _nowPlayingId.value =
                     metadata?.getString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID)
                 _duration.value =
-                    metadata?.getLong(MediaMetadataCompat.METADATA_KEY_DURATION) ?: 0L
+                    (metadata?.getLong(MediaMetadataCompat.METADATA_KEY_DURATION) ?: 0L).coerceAtLeast(0L)
             }
 
             override fun onShuffleModeChanged(shuffleMode: Int) {
+                if (mediaController !== controller) return
                 _isShuffled.value = shuffleMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
             }
 
             override fun onExtrasChanged(extras: Bundle?) {
+                if (mediaController !== controller) return
                 // Forward 0 too: it is the "audio session released" signal the
                 // equalizer needs in order to free its native effects. Dropping
                 // it here made that teardown path unreachable.
@@ -138,30 +148,53 @@ class PlaybackConnection(private val context: Context) {
                 // and resume polling so a restarting service with a fresh token
                 // reconnects instead of leaving the UI stale.
                 if (mediaController == controller) {
-                    controller.unregisterCallback(this)
-                    mediaController = null
-                    boundToken = null
-                    _isReady.value = false
+                    clearController()
                     onUnbind()
                 }
             }
-        })
+        }
+        callback = registered
+        controller.registerCallback(registered, handler)
 
+        _isPlaying.value = controller.playbackState?.state == PlaybackStateCompat.STATE_PLAYING
         _isShuffled.value = controller.shuffleMode == PlaybackStateCompat.SHUFFLE_MODE_ALL
         _nowPlayingTitle.value = controller.metadata
             ?.getString(MediaMetadataCompat.METADATA_KEY_TITLE)
         _nowPlayingId.value = controller.metadata
             ?.getString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID)
         _duration.value = controller.metadata
-            ?.getLong(MediaMetadataCompat.METADATA_KEY_DURATION) ?: 0L
-        _position.value = controller.playbackState?.position ?: 0L
+            ?.getLong(MediaMetadataCompat.METADATA_KEY_DURATION)?.coerceAtLeast(0L) ?: 0L
+        _position.value = (controller.playbackState?.position ?: 0L).coerceAtLeast(0L)
         onAudioSession?.invoke(controller.extras?.getInt("audio_session_id") ?: 0)
         _isReady.value = true
     }
 
+    /** Releases callbacks and pending polling when the owning ViewModel ends. */
+    fun disconnect() {
+        connected = false
+        handler.removeCallbacksAndMessages(null)
+        clearController()
+    }
+
+    private fun clearController() {
+        val hadController = mediaController != null
+        callback?.let { mediaController?.unregisterCallback(it) }
+        callback = null
+        mediaController = null
+        boundToken = null
+        _isReady.value = false
+        _isPlaying.value = false
+        _isShuffled.value = false
+        _nowPlayingTitle.value = null
+        _nowPlayingId.value = null
+        _duration.value = 0L
+        _position.value = 0L
+        if (hadController) onAudioSession?.invoke(0)
+    }
+
     /** Refreshes [position] from the controller (called by the 1s UI poller). */
     fun refreshPosition() {
-        _position.value = mediaController?.playbackState?.position ?: 0L
+        _position.value = (mediaController?.playbackState?.position ?: 0L).coerceAtLeast(0L)
     }
 
     fun playFromMediaId(mediaId: String) {
@@ -193,7 +226,7 @@ class PlaybackConnection(private val context: Context) {
     }
 
     companion object {
-        /** Stop polling for the session token after this long (ms). */
+        /** Report unavailable once after this long; late service starts still bind. */
         private const val TIMEOUT_MS = 10_000L
 
         /** Poll interval while waiting for the session token (ms). */

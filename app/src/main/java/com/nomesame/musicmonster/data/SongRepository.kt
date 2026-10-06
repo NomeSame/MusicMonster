@@ -55,7 +55,7 @@ class SongRepository(
                             id = idLong.toString(),
                             title = title,
                             uri = contentUri,
-                            durationMs = durationMs
+                            durationMs = durationMs.coerceAtLeast(0L)
                         )
                     )
                 }
@@ -65,14 +65,13 @@ class SongRepository(
             // library so the app degrades gracefully instead of crashing.
             // The user can still grant access via the SAF folder picker.
             list.clear()
-        } catch (_: IllegalArgumentException) {
-            // getColumnIndexOrThrow: some vendor MediaStore providers omit
-            // columns that are documented as always present. An unusable
-            // provider must degrade to "no songs", not crash the app.
+        } catch (_: Exception) {
+            // Missing OEM columns, a dead provider or cursor failure must not
+            // escape the ViewModel coroutine and crash the application.
             list.clear()
         }
 
-        return MusicLogic.sortNatural(list)
+        return MusicLogic.sortNatural(list.distinctBy { it.id })
     }
 
     private fun loadFromTree(treeUri: Uri): List<Song> {
@@ -81,34 +80,24 @@ class SongRepository(
         val list = mutableListOf<Song>()
         val stack = ArrayDeque<DocumentFile>()
         stack.add(root)
-        try {
-            while (stack.isNotEmpty()) {
-                val doc = stack.removeFirst()
+        val visited = mutableSetOf<Uri>()
+        while (stack.isNotEmpty() && !Thread.currentThread().isInterrupted) {
+            val doc = stack.removeFirst()
+            if (!visited.add(doc.uri)) continue
+            try {
                 if (doc.isDirectory) {
                     doc.listFiles().forEach { stack.add(it) }
                 } else {
                     val name = doc.name ?: "Unknown"
-                    val type = doc.type
-                    if (MusicLogic.isAudioFile(name, type)) {
-                        list.add(
-                            Song(
-                                id = doc.uri.toString(),
-                                title = name.substringBeforeLast('.'),
-                                uri = doc.uri,
-                                durationMs = 0L
-                            )
-                        )
+                    if (MusicLogic.isAudioFile(name, doc.type)) {
+                        list.add(Song(doc.uri.toString(), name.substringBeforeLast('.'), doc.uri, 0L))
                     }
                 }
+            } catch (_: Exception) {
+                // One unreadable child does not discard the rest of the tree.
+                // Visiting each URI once also bounds cyclic provider responses.
             }
-        } catch (_: Exception) {
-            // The SAF tree permission can be revoked at any time (user revokes
-            // in Settings, or the grant expires) and third-party/cloud-backed
-            // DocumentsProviders throw a grab-bag of RuntimeExceptions from
-            // listFiles()/isDirectory when they are unhappy. Degrade to what we
-            // already collected instead of crashing — same invariant as the
-            // MediaStore path above.
         }
-        return MusicLogic.sortNatural(list)
+        return MusicLogic.sortNatural(list.distinctBy { it.id })
     }
 }

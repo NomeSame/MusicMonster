@@ -40,6 +40,7 @@ class PlaybackSessionInstrumentedTest {
 
     private var inserted: Uri? = null
     private lateinit var controller: MediaControllerCompat
+    private var savedPrefs: Map<String, *>? = null
 
     /** A one-second 8kHz mono sine as a WAV — small, and ExoPlayer plays it. */
     private fun wavBytes(): ByteArray {
@@ -67,12 +68,20 @@ class PlaybackSessionInstrumentedTest {
 
     @Before
     fun setUp() {
+        val prefs = context.getSharedPreferences("music_prefs", Context.MODE_PRIVATE)
+        savedPrefs = prefs.all.toMap()
         TestPermissions.grantAll()
+        context.stopService(Intent(context, MusicService::class.java))
+        assertTrue("Previous service did not stop", await("service stop") {
+            true.takeIf { MusicService.sessionToken == null }
+        } == true)
+        prefs.edit().clear().commit()
         // The library must come from MediaStore, not a stale SAF folder from
         // another test or a previous manual run.
         context.getSharedPreferences("music_prefs", Context.MODE_PRIVATE)
             .edit().remove("library_tree_uri").commit()
         inserted = insertTestTrack()
+        assertNotNull("WAV test fixture must exist on every supported API", inserted)
         startServiceAndConnect()
     }
 
@@ -80,6 +89,22 @@ class PlaybackSessionInstrumentedTest {
     fun tearDown() {
         inserted?.let { runCatching { context.contentResolver.delete(it, null, null) } }
         context.stopService(Intent(context, MusicService::class.java))
+        assertTrue("Test service did not stop", await("service stop") {
+            true.takeIf { MusicService.sessionToken == null }
+        } == true)
+        savedPrefs?.let { saved ->
+            val prefs = context.getSharedPreferences("music_prefs", Context.MODE_PRIVATE)
+            prefs.edit().clear().apply {
+                for ((key, value) in saved) when (value) {
+                    is String -> putString(key, value)
+                    is Int -> putInt(key, value)
+                    is Long -> putLong(key, value)
+                    is Float -> putFloat(key, value)
+                    is Boolean -> putBoolean(key, value)
+                    is Set<*> -> putStringSet(key, value.filterIsInstance<String>().toSet())
+                }
+            }.commit()
+        }
     }
 
     private fun insertTestTrack(): Uri? = runCatching {
@@ -95,7 +120,12 @@ class PlaybackSessionInstrumentedTest {
         }
         val uri = context.contentResolver
             .insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values) ?: return@runCatching null
-        context.contentResolver.openOutputStream(uri)?.use { it.write(wavBytes()) }
+        try {
+            requireNotNull(context.contentResolver.openOutputStream(uri)).use { it.write(wavBytes()) }
+        } catch (error: Exception) {
+            context.contentResolver.delete(uri, null, null)
+            throw error
+        }
         uri
     }.getOrNull()
 
@@ -106,14 +136,16 @@ class PlaybackSessionInstrumentedTest {
         } else {
             context.startService(intent)
         }
-        val token = await("session token") { MusicService.sessionToken } ?: return
+        val token = requireNotNull(await("session token") { MusicService.sessionToken }) {
+            "MusicService did not publish its token"
+        }
         controller = MediaControllerCompat(context, token)
         // Pick up the track this test just inserted.
         context.startService(
             Intent(context, MusicService::class.java)
                 .setAction(MusicService.ACTION_RELOAD_LIBRARY)
         )
-        awaitLibrary()
+        assertTrue("MusicService did not finish scanning the test library", awaitLibrary())
     }
 
     /**
@@ -163,15 +195,6 @@ class PlaybackSessionInstrumentedTest {
 
     @Test
     fun playReachesPlayingWithARealTrack() {
-        if (inserted == null) {
-            // No MediaStore write access on this configuration: still assert
-            // the contract that matters — play() on an empty library must
-            // leave a live, non-crashed session behind, not kill the service.
-            controller.transportControls.play()
-            SystemClock.sleep(1_500L)
-            assertNotNull("service died on play() with an empty library", MusicService.sessionToken)
-            return
-        }
         controller.transportControls.play()
         val state = awaitState(PlaybackStateCompat.STATE_PLAYING)
         assertEquals(
@@ -233,7 +256,7 @@ class PlaybackSessionInstrumentedTest {
 
     @Test
     fun playRequestedBeforeTheLibraryIsReadyStillPlays() {
-        if (inserted == null) return
+        assertNotNull("Cold-start regression needs the WAV fixture", inserted)
         // The cold-start race: the session is published as soon as the service
         // goes foreground, but the library scan runs off the main thread. A
         // lock-screen or headset play arriving in that window must be honoured

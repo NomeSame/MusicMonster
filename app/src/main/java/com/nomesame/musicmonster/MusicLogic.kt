@@ -24,8 +24,8 @@ object MusicLogic {
         while (i < la.length && j < lb.length) {
             if (la[i].isDigit() && lb[j].isDigit()) {
                 // Skip leading zeros so "01" and "1" compare equal.
-                while (i < la.length && la[i] == '0') i++
-                while (j < lb.length && lb[j] == '0') j++
+                while (i < la.length && Character.digit(la[i], 10) == 0) i++
+                while (j < lb.length && Character.digit(lb[j], 10) == 0) j++
                 // Compare digit runs as strings to avoid Long overflow on
                 // extremely long runs (e.g. 30-digit filenames).
                 val startA = i
@@ -36,8 +36,8 @@ object MusicLogic {
                 val lenB = j - startB
                 if (lenA != lenB) return lenA.compareTo(lenB)
                 for (k in 0 until lenA) {
-                    val cA = la[startA + k]
-                    val cB = lb[startB + k]
+                    val cA = Character.digit(la[startA + k], 10)
+                    val cB = Character.digit(lb[startB + k], 10)
                     if (cA != cB) return cA.compareTo(cB)
                 }
             } else {
@@ -87,8 +87,9 @@ object MusicLogic {
         startId: String?,
         lookup: (String) -> T?,
     ): Pair<List<T>, Int> {
-        val resolvedIds = ids.filter { lookup(it) != null }
-        val items = resolvedIds.map { lookup(it)!! }
+        val resolved = ids.mapNotNull { id -> lookup(id)?.let { id to it } }
+        val resolvedIds = resolved.map { it.first }
+        val items = resolved.map { it.second }
         val startIndex = resolvedIds.indexOf(startId).takeIf { it >= 0 } ?: 0
         return items to startIndex
     }
@@ -122,7 +123,7 @@ object MusicLogic {
      * extension is the fallback for providers that report no MIME type.
      */
     fun isAudioFile(name: String, mimeType: String?): Boolean =
-        mimeType?.startsWith("audio/") == true ||
+        mimeType?.trim()?.startsWith("audio/", ignoreCase = true) == true ||
             name.endsWith(".mp3", true) ||
             name.endsWith(".m4a", true) ||
             name.endsWith(".flac", true) ||

@@ -28,31 +28,17 @@ class PlaylistRepository(
     /** Parses persisted playlists, or null if none/invalid. */
     fun load(): Loaded? {
         val raw = prefs.stringOr("playlists_json", null) ?: return null
-        val parsed = mutableListOf<Playlist>()
-        try {
-            val array = JSONArray(raw)
-            for (i in 0 until array.length()) {
-                val obj = array.getJSONObject(i)
-                val id = obj.optString("id")
-                val name = obj.optString("name")
-                if (id.isBlank() || name.isBlank()) continue
-                val songsJson = obj.optJSONArray("songs") ?: JSONArray()
-                val songIds = mutableStateListOf<String>()
-                for (s in 0 until songsJson.length()) {
-                    val songId = songsJson.optString(s)
-                    if (songId.isNotBlank()) {
-                        songIds.add(songId)
-                    }
-                }
-                parsed.add(Playlist(id = id, name = name, songIds = songIds))
+        val records = PlaylistCodec.parse(raw) ?: return null
+        val parsed = linkedMapOf<String, Playlist>()
+        for (record in records) {
+            if (record.id.isBlank()) continue
+            val playlist = parsed.getOrPut(record.id) {
+                Playlist(record.id, record.name, mutableStateListOf())
             }
-        } catch (_: Throwable) {
-            return null
+            val present = playlist.songIds.toHashSet()
+            record.songs.forEach { if (present.add(it)) playlist.songIds.add(it) }
         }
-        val nextSequence = parsed.mapNotNull {
-            it.id.removePrefix("playlist_").toIntOrNull()
-        }.maxOrNull()?.plus(1) ?: 0
-        return Loaded(parsed, nextSequence)
+        return Loaded(parsed.values.toList(), PlaylistCodec.nextSequence(parsed.keys))
     }
 
     fun save(playlists: List<Playlist>) {
@@ -81,8 +67,8 @@ class PlaylistRepository(
             array.put(obj)
         }
         try {
-            resolver.openOutputStream(uri)?.use { output ->
-                OutputStreamWriter(output).use { writer ->
+            resolver.openOutputStream(uri, "wt")?.use { output ->
+                OutputStreamWriter(output, Charsets.UTF_8).use { writer ->
                     writer.write(array.toString(2))
                 }
             }
@@ -99,7 +85,7 @@ class PlaylistRepository(
      */
     fun readText(uri: Uri): String? = try {
         resolver.openInputStream(uri)?.use { input ->
-            BufferedReader(InputStreamReader(input)).readText()
+            BufferedReader(InputStreamReader(input, Charsets.UTF_8)).readText()
         }
     } catch (_: Exception) {
         // Stale or revoked SAF uri (FileNotFoundException, SecurityException,
@@ -117,49 +103,28 @@ class PlaylistRepository(
 
     /** Same merge as above, on already-read JSON [raw]. */
     fun importInto(raw: String, target: SnapshotStateList<Playlist>, currentSequence: Int): Int? {
-        var sequence = currentSequence
-        try {
-            val array = JSONArray(raw)
-            for (i in 0 until array.length()) {
-                val obj = array.getJSONObject(i)
-                val id = obj.optString("id")
-                val name = obj.optString("name")
-                if (name.isBlank()) continue
-                val songsJson = obj.optJSONArray("songs") ?: JSONArray()
-                val songIds = mutableListOf<String>()
-                for (s in 0 until songsJson.length()) {
-                    val songId = songsJson.optString(s)
-                    if (songId.isNotBlank()) {
-                        songIds.add(songId)
-                    }
+        // Parse the whole document before changing observable state. Malformed
+        // records are skipped, while invalid document syntax changes nothing.
+        val records = PlaylistCodec.parse(raw) ?: return null
+        val reserved = (target.map { it.id } + records.map { it.id }).toMutableSet()
+        var sequence = currentSequence.coerceAtLeast(0)
+        for (record in records) {
+            val existing = target.firstOrNull { record.id.isNotBlank() && it.id == record.id }
+                ?: target.firstOrNull { it.name.equals(record.name, true) }
+            if (existing != null) {
+                val present = existing.songIds.toHashSet()
+                record.songs.forEach { if (present.add(it)) existing.songIds.add(it) }
+            } else {
+                val id = record.id.takeIf { it.isNotBlank() } ?: run {
+                    val available = PlaylistCodec.nextSequence(reserved, sequence)
+                    sequence = if (available == Int.MAX_VALUE) 0 else available + 1
+                    "playlist_$available"
                 }
-                val existing = target.firstOrNull { it.id == id || it.name.equals(name, true) }
-                if (existing != null) {
-                    // Hash the existing ids once instead of scanning the list
-                    // per imported song: merging a large import into a large
-                    // playlist was quadratic, and this runs on the UI thread
-                    // because it mutates snapshot state.
-                    val present = existing.songIds.toHashSet()
-                    songIds.forEach { songId ->
-                        if (present.add(songId)) {
-                            existing.songIds.add(songId)
-                        }
-                    }
-                } else {
-                    val playlistId = if (id.isBlank()) "playlist_${sequence++}" else id
-                    val merged = Playlist(
-                        id = playlistId,
-                        name = name,
-                        songIds = mutableStateListOf<String>().apply { addAll(songIds.distinct()) }
-                    )
-                    target.add(merged)
-                }
+                reserved.add(id)
+                target.add(Playlist(id, record.name,
+                    mutableStateListOf<String>().apply { addAll(record.songs) }))
             }
-        } catch (_: Throwable) {
-            return null
         }
-        return target.mapNotNull {
-            it.id.removePrefix("playlist_").toIntOrNull()
-        }.maxOrNull()?.plus(1) ?: sequence
+        return PlaylistCodec.nextSequence(target.map { it.id }, sequence)
     }
 }

@@ -38,7 +38,7 @@ class MainActivity : ComponentActivity() {
             // persisted URI permissions are capped per app (128 below API 30),
             // and re-picking a folder otherwise leaks one grant every time.
             viewModel.libraryTreeUri()?.takeIf { it != uri }?.let(::releaseReadPermission)
-            takeReadPermission(uri, persistTree = true)
+            takeReadPermission(uri)
             viewModel.saveLibraryTreeUri(uri)
             viewModel.loadSongs()
             viewModel.startMusicService()
@@ -51,14 +51,12 @@ class MainActivity : ComponentActivity() {
      * throw SecurityException here. The folder still works for this session, so
      * a failed persist must not take the app down.
      */
-    private fun takeReadPermission(uri: Uri, persistTree: Boolean) {
-        val flags = if (persistTree) {
-            Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-        } else {
-            Intent.FLAG_GRANT_READ_URI_PERMISSION
+    private fun takeReadPermission(uri: Uri) {
+        // Only read/write modes are accepted here. PERSISTABLE describes the
+        // offered picker grant; passing it to this method is rejected by Android.
+        runCatching {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        runCatching { contentResolver.takePersistableUriPermission(uri, flags) }
     }
 
     private fun releaseReadPermission(uri: Uri) {
@@ -91,7 +89,7 @@ class MainActivity : ComponentActivity() {
         if (uri != null) {
             // Persist read access so the background survives restarts.
             viewModel.customBgUri.value?.takeIf { it != uri }?.let(::releaseReadPermission)
-            takeReadPermission(uri, persistTree = false)
+            takeReadPermission(uri)
             viewModel.onCustomBackgroundPicked(uri)
         }
     }

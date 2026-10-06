@@ -128,6 +128,6 @@ internal fun computeInSampleSize(width: Int, height: Int, maxDim: Int): Int {
     if (maxDim <= 0) return 1
     var sample = 1
     val longest = maxOf(width, height)
-    while (longest / sample > maxDim) sample *= 2
+    while (sample < (1 shl 30) && longest.toLong() > maxDim.toLong() * sample) sample *= 2
     return sample
 }

@@ -19,6 +19,8 @@ import com.nomesame.musicmonster.data.SongRepository
 import com.nomesame.musicmonster.data.floatOr
 import com.nomesame.musicmonster.data.intOr
 import com.nomesame.musicmonster.data.stringOr
+import com.nomesame.musicmonster.data.unitFloat
+import com.nomesame.musicmonster.data.PlaylistCodec
 import com.nomesame.musicmonster.model.Playlist
 import com.nomesame.musicmonster.playback.PlaybackConnection
 import com.nomesame.musicmonster.ui.theme.DefaultAccent
@@ -92,7 +94,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val playerOpacity: StateFlow<Float> = _playerOpacity.asStateFlow()
 
     fun setPlayerOpacity(value: Float) {
-        val clamped = value.coerceIn(0f, 1f)
+        val clamped = unitFloat(value, 1f)
         prefs.edit().putFloat(KEY_PLAYER_OPACITY, clamped).apply()
         _playerOpacity.value = clamped
     }
@@ -120,7 +122,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setCustomBgScrim(value: Float) {
         backgroundRepository.setScrim(value)
-        _customBgScrim.value = value.coerceIn(0f, 1f)
+        _customBgScrim.value = backgroundRepository.scrim()
     }
 
     /**
@@ -237,8 +239,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun nextUpSong(songs: List<Song>, currentId: String?): Song? = MusicLogic.nextUpSong(songs, currentId)
 
     fun createPlaylist(name: String, initialSong: Song?): Playlist {
+        val available = PlaylistCodec.nextSequence(playlists.map { it.id }, playlistSequence)
+        playlistSequence = if (available == Int.MAX_VALUE) 0 else available + 1
         val playlist = Playlist(
-            id = "playlist_${playlistSequence++}",
+            id = "playlist_$available",
             name = name.trim(),
             songIds = mutableStateListOf()
         )
@@ -322,6 +326,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * when the app goes away, so do it here.
      */
     override fun onCleared() {
+        playbackConnection.disconnect()
         equalizerController.setupForSession(0)
         super.onCleared()
     }

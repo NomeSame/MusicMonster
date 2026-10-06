@@ -5,12 +5,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
-import android.content.ContentUris
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
-import android.provider.MediaStore
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -36,8 +34,6 @@ import androidx.media3.exoplayer.source.ShuffleOrder
 import android.os.Bundle
 import android.support.v4.media.MediaMetadataCompat
 
-import android.net.Uri
-import androidx.documentfile.provider.DocumentFile
 import com.nomesame.musicmonster.data.booleanOr
 import com.nomesame.musicmonster.data.intOr
 import com.nomesame.musicmonster.data.longOr
@@ -84,8 +80,7 @@ class MusicService : Service() {
     private var playerReleased = false
 
     /** A play/playFromMediaId that arrived before the library was ready. */
-    private var pendingPlay = false
-    private var pendingPlayMediaId: String? = null
+    private val pendingPlayback = PendingPlaybackRequest()
 
     companion object {
         const val CHANNEL_ID = "monsterplayer_channel"
@@ -168,7 +163,7 @@ class MusicService : Service() {
                     // lock screen or a headset button right after a cold start.
                     // Remember it instead of dropping it on the floor.
                     if (!libraryReady) {
-                        pendingPlayMediaId = mediaId
+                        pendingPlayback.play(mediaId)
                         return
                     }
                     startPlayback(mediaId)
@@ -176,13 +171,14 @@ class MusicService : Service() {
 
                 override fun onPlay() {
                     if (!libraryReady) {
-                        pendingPlay = true
+                        pendingPlayback.play()
                         return
                     }
                     startPlayback(null)
                 }
 
                 override fun onPause() {
+                    pendingPlayback.pause()
                     savePlaybackState()
                     player.pause()
                     setPlaybackState(false)
@@ -228,6 +224,7 @@ class MusicService : Service() {
                 }
 
                 override fun onStop() {
+                    pendingPlayback.pause()
                     player.stop()
                     setPlaybackState(false)
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -354,13 +351,7 @@ class MusicService : Service() {
         pendingCommands.clear()
         queued.forEach { handleCommand(it) }
 
-        val wantedId = pendingPlayMediaId
-        val wantedPlay = pendingPlay
-        pendingPlayMediaId = null
-        pendingPlay = false
-        if (wantedId != null || wantedPlay) {
-            startPlayback(wantedId)
-        }
+        pendingPlayback.consume()?.let { startPlayback(it.mediaId) }
     }
 
     /**
@@ -498,109 +489,15 @@ class MusicService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    // Returns MediaItems, titles, and durations (ms) keyed by mediaId.
+    // Share the exact same provider handling, filtering and ordering as the UI.
     private fun loadDevicePlaylist(): Triple<List<MediaItem>, List<String>, Map<String, Long>> {
-        val treeUri = runCatching {
-            prefs.stringOr("library_tree_uri", null)?.let { Uri.parse(it) }
-        }.getOrNull()
-        if (treeUri != null) {
-            return loadTreePlaylist(treeUri)
-        }
-        val permission =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                Manifest.permission.READ_MEDIA_AUDIO
-            else
-                Manifest.permission.READ_EXTERNAL_STORAGE
-
-        if (ActivityCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
-            return Triple(emptyList(), emptyList(), emptyMap())
-        }
-
-        val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-        val projection = arrayOf(
-            MediaStore.Audio.Media._ID,
-            MediaStore.Audio.Media.TITLE,
-            MediaStore.Audio.Media.DURATION
+        val songs = com.nomesame.musicmonster.data.SongRepository(this, prefs).load()
+        return Triple(
+            songs.map { MediaItem.Builder().setMediaId(it.id).setUri(it.uri).build() },
+            songs.map { it.title },
+            songs.associate { it.id to it.durationMs },
         )
-        val selection = "${MediaStore.Audio.Media.IS_MUSIC}!=0"
-val sortOrder = null
-
-        val items = mutableListOf<MediaItem>()
-        val titles = mutableListOf<String>()
-        val durations = mutableMapOf<String, Long>()
-
-        contentResolver.query(collection, projection, selection, null, sortOrder)?.use { cursor ->
-            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-            val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-            val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-
-            while (cursor.moveToNext()) {
-                val id = cursor.getLong(idCol)
-                val title = cursor.getString(titleCol) ?: "Unknown"
-                val duration = cursor.getLong(durationCol)
-
-                // Build MediaItem with mediaId so the activity can play by ID.
-                val contentUri = ContentUris.withAppendedId(collection, id)
-                val mediaId = id.toString()
-                items.add(MediaItem.Builder()
-                    .setMediaId(mediaId)
-                    .setUri(contentUri)
-                    .build())
-                titles.add(title)
-                durations[mediaId] = duration
-            }
-        }
-
-        val combined = items.zip(titles).sortedWith(naturalTitleComparator())
-        val sortedItems = combined.map { it.first }
-        val sortedTitles = combined.map { it.second }
-        return Triple(sortedItems, sortedTitles, durations)
     }
-
-    private fun loadTreePlaylist(treeUri: Uri): Triple<List<MediaItem>, List<String>, Map<String, Long>> {
-        val root = runCatching { DocumentFile.fromTreeUri(this, treeUri) }.getOrNull()
-            ?: return Triple(emptyList(), emptyList(), emptyMap())
-        val stack = ArrayDeque<DocumentFile>()
-        val items = mutableListOf<MediaItem>()
-        val titles = mutableListOf<String>()
-        val durations = mutableMapOf<String, Long>()
-        stack.add(root)
-        try {
-        while (stack.isNotEmpty()) {
-            val doc = stack.removeFirst()
-            if (doc.isDirectory) {
-                doc.listFiles().forEach { stack.add(it) }
-            } else {
-                val name = doc.name ?: continue
-                val type = doc.type
-                if (MusicLogic.isAudioFile(name, type)) {
-                    val title = name.substringBeforeLast('.')
-                    val uri = doc.uri
-                    val mediaId = uri.toString()
-                    items.add(
-                        MediaItem.Builder()
-                            .setMediaId(mediaId)
-                            .setUri(uri)
-                            .build()
-                    )
-                    titles.add(title)
-                    durations[mediaId] = 0L
-                }
-            }
-        }
-        } catch (_: SecurityException) {
-            // Same as SongRepository: the SAF tree read can throw SecurityException
-            // if the grant was revoked/expired mid-scan. Keep whatever we already
-            // collected rather than killing the playback service.
-        }
-        val combined = items.zip(titles).sortedWith(naturalTitleComparator())
-        val sortedItems = combined.map { it.first }
-        val sortedTitles = combined.map { it.second }
-        return Triple(sortedItems, sortedTitles, durations)
-    }
-
-    private fun naturalTitleComparator(): Comparator<Pair<MediaItem, String>> =
-        Comparator { (_, a), (_, b) -> MusicLogic.compareNatural(a, b) }
 
     private fun setPlaybackState(isPlaying: Boolean) {
         val actions =
@@ -810,9 +707,11 @@ val sortOrder = null
 
     private fun startSleepTimer(durationMs: Long, fadeMs: Long) {
         cancelSleepTimer()
-        val safeFadeMs = fadeMs.coerceAtMost(durationMs)
-        val waitMs = (durationMs - safeFadeMs).coerceAtLeast(0L)
+        val plan = SleepTimerPlan.create(durationMs, fadeMs) ?: return
+        val safeFadeMs = plan.fadeMs
+        val waitMs = plan.waitMs
         sleepRunnable = Runnable {
+            sleepRunnable = null
             if (safeFadeMs > 0L) {
                 startFadeOut(safeFadeMs)
             } else {
@@ -821,25 +720,25 @@ val sortOrder = null
                 updateNotification(false)
             }
         }
-        sleepHandler.postDelayed(sleepRunnable!!, waitMs)
+        sleepHandler.postDelayed(sleepRunnable!!,
+            waitMs.coerceAtMost(Long.MAX_VALUE - SystemClock.uptimeMillis()))
     }
 
     private fun startFadeOut(fadeMs: Long) {
         fadeRunnable?.let { sleepHandler.removeCallbacks(it) }
         originalVolume = player.volume
-        val steps = (fadeMs / 200L).coerceAtLeast(1L).toInt()
-        var step = 0
-        val stepDuration = fadeMs / steps
+        val startedAt = SystemClock.elapsedRealtime()
+        val plan = SleepTimerPlan(0L, fadeMs)
         val runnable = object : Runnable {
             override fun run() {
-                step++
-                val progress = step / steps.toFloat()
-                player.volume = originalVolume * (1f - progress).coerceIn(0f, 1f)
-                if (step < steps) {
-                    sleepHandler.postDelayed(this, stepDuration)
+                val elapsed = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
+                player.volume = plan.volumeAt(originalVolume, elapsed)
+                if (elapsed < fadeMs) {
+                    sleepHandler.postDelayed(this, minOf(200L, fadeMs - elapsed))
                 } else {
                     player.pause()
                     player.volume = originalVolume
+                    fadeRunnable = null
                     setPlaybackState(false)
                     updateNotification(false)
                 }

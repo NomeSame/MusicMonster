@@ -34,7 +34,7 @@ class BackgroundRepository(private val prefs: SharedPreferences) {
     fun scrim(): Float = prefs.floatOr(KEY_SCRIM, DEFAULT_SCRIM).coerceIn(0f, 1f)
 
     fun setScrim(value: Float) {
-        prefs.edit().putFloat(KEY_SCRIM, value.coerceIn(0f, 1f)).apply()
+        prefs.edit().putFloat(KEY_SCRIM, unitFloat(value, DEFAULT_SCRIM)).apply()
     }
 
     companion object {

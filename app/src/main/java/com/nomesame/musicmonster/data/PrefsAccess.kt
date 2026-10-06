@@ -23,10 +23,14 @@ fun SharedPreferences.longOr(key: String, default: Long): Long =
     runCatching { getLong(key, default) }.getOrDefault(default)
 
 fun SharedPreferences.floatOr(key: String, default: Float): Float =
-    runCatching { getFloat(key, default) }.getOrDefault(default)
+    runCatching { getFloat(key, default).takeIf { it.isFinite() } ?: default }.getOrDefault(default)
 
 fun SharedPreferences.booleanOr(key: String, default: Boolean): Boolean =
     runCatching { getBoolean(key, default) }.getOrDefault(default)
 
 fun SharedPreferences.stringOr(key: String, default: String?): String? =
     runCatching { getString(key, default) }.getOrDefault(default)
+
+/** Finite UI alpha in the unit interval, with a safe fallback for NaN/infinity. */
+internal fun unitFloat(value: Float, default: Float): Float =
+    if (value.isFinite()) value.coerceIn(0f, 1f) else default
