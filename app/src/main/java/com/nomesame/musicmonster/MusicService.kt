@@ -45,6 +45,19 @@ import android.content.SharedPreferences
 class MusicService : Service() {
     private lateinit var player: ExoPlayer
     private lateinit var session: MediaSessionCompat
+    private val openPlayerIntent: PendingIntent by lazy {
+        PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java).apply {
+                action = Intent.ACTION_MAIN
+                addCategory(Intent.CATEGORY_LAUNCHER)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
     private val positionHandler = Handler(Looper.getMainLooper())
     private val sleepHandler = Handler(Looper.getMainLooper())
     private var sleepRunnable: Runnable? = null
@@ -149,6 +162,8 @@ class MusicService : Service() {
         player.setWakeMode(C.WAKE_MODE_LOCAL)
 
         session = MediaSessionCompat(this, "MonsterPlayerService").apply {
+            // System media cards need an explicit destination for opening our UI.
+            setSessionActivity(openPlayerIntent)
             isActive = true
             setFlags(
                 MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
@@ -578,6 +593,7 @@ class MusicService : Service() {
         }
 
         val publicNotification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentIntent(openPlayerIntent)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(currentTitle)
             .setContentText("")
@@ -599,6 +615,7 @@ class MusicService : Service() {
             .build()
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentIntent(openPlayerIntent)
             .setSmallIcon(R.drawable.ic_notification)
             // Use the current track title as the notification title so that
             // the lock‑screen banner displays the same name as the song

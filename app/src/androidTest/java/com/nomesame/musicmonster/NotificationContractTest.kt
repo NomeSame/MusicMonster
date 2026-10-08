@@ -2,16 +2,19 @@ package com.nomesame.musicmonster
 
 import android.app.Notification
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
 import android.support.v4.media.session.PlaybackStateCompat
+import android.support.v4.media.session.MediaControllerCompat
 import androidx.media.session.MediaButtonReceiver
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.BeforeClass
 import org.junit.Test
@@ -72,6 +75,50 @@ class NotificationContractTest {
                 action.actionIntent
             )
         }
+    }
+
+    @Test
+    fun bothNotificationCardsOpenOurMainActivity() {
+        val notification = awaitServiceNotification()
+            ?: throw AssertionError("MusicService never posted its foreground notification")
+        val expected = expectedPlayerIntent()
+        assertEquals("Notification must open our own MainActivity", expected, notification.contentIntent)
+        val publicVersion = notification.publicVersion
+            ?: throw AssertionError("Missing public lock-screen notification")
+        assertEquals("Lock-screen card must open our own MainActivity", expected, publicVersion.contentIntent)
+    }
+
+    @Test
+    fun systemMediaSessionOpensTheSameMainActivityAsNotification() {
+        val notification = awaitServiceNotification()
+            ?: throw AssertionError("MusicService never posted its foreground notification")
+        val token = MusicService.sessionToken
+            ?: throw AssertionError("MusicService did not publish a session token")
+        val controller = MediaControllerCompat(context, token)
+        val sessionActivity = controller.sessionActivity
+        assertEquals("System media card must open our own MainActivity", expectedPlayerIntent(), sessionActivity)
+        assertEquals("Session and notification must use the same destination", notification.contentIntent, sessionActivity)
+    }
+
+    private fun expectedPlayerIntent(): PendingIntent {
+        // NO_CREATE cannot manufacture the missing destination and hide a regression.
+        // Framework PendingIntent identity includes the explicit component, action
+        // and categories; a YouTube destination cannot match this MainActivity.
+        val expected = PendingIntent.getActivity(
+            context,
+            0,
+            Intent(context, MainActivity::class.java).apply {
+                action = Intent.ACTION_MAIN
+                addCategory(Intent.CATEGORY_LAUNCHER)
+            },
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        ) ?: throw AssertionError("No existing PendingIntent targets our MainActivity")
+        assertEquals(context.packageName, expected.creatorPackage)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            assertTrue("Player destination must launch an Activity", expected.isActivity)
+            assertTrue("Player destination must be immutable", expected.isImmutable)
+        }
+        return expected
     }
 
     @Test
