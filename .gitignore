@@ -8,6 +8,7 @@
 .externalNativeBuild
 .cxx
 local.properties
+images.jpg
 
 # Windows WSL metadata
 *:Zone.Identifier
