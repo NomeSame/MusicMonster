@@ -15,6 +15,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
 import com.nomesame.musicmonster.audio.EqualizerController
 import com.nomesame.musicmonster.data.BackgroundRepository
+import com.nomesame.musicmonster.data.LanguageRepository
+import com.nomesame.musicmonster.model.AppLanguage
 import com.nomesame.musicmonster.data.PlaylistRepository
 import com.nomesame.musicmonster.data.SongRepository
 import com.nomesame.musicmonster.data.floatOr
@@ -51,6 +53,19 @@ class MainViewModel(application: Application, savedState: SavedStateHandle = Sav
     private val songRepository = SongRepository(application, prefs)
     private val backgroundRepository = BackgroundRepository(prefs)
     private val paletteEngine = PaletteEngine(application)
+    private val languageRepository = LanguageRepository(application)
+    private val _appLanguage = MutableStateFlow(languageRepository.load())
+    val appLanguage: StateFlow<AppLanguage> = _appLanguage.asStateFlow()
+
+    fun setAppLanguage(language: AppLanguage) {
+        if (_appLanguage.value == language) return
+        languageRepository.save(language)
+        _appLanguage.value = language
+        if (serviceStarted || MusicService.sessionToken != null) {
+            startPlaybackService(Intent(app, MusicService::class.java)
+                .setAction(MusicService.ACTION_REFRESH_NOTIFICATION))
+        }
+    }
 
     val equalizerController = EqualizerController()
     val playbackConnection = PlaybackConnection(application)
@@ -78,17 +93,8 @@ class MainViewModel(application: Application, savedState: SavedStateHandle = Sav
     fun setAccentColor(color: Color) {
         prefs.edit().putInt("accent_color", color.toArgb()).apply()
         _accentColor.value = color
-        // Re-tint the media notification / lock screen if the service is running.
-        // Must go through startPlaybackService: a plain startService() here
-        // throws on API 26+ whenever the service has since been killed, and
-        // IllegalStateException/ForegroundServiceStartNotAllowedException on
-        // API 31+ when the app isn't in the foreground.
-        if (serviceStarted) {
-            startPlaybackService(
-                Intent(app, MusicService::class.java)
-                    .setAction(MusicService.ACTION_REFRESH_NOTIFICATION)
-            )
-        }
+        // A live MusicService observes all appearance preferences directly.
+        // Changing design alone must not start/restart playback or duplicate its refresh.
     }
 
     // --- Player card opacity ---------------------------------------------------

@@ -50,19 +50,19 @@ fun SongSelectionBar(
                 }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
+                Column(Modifier.weight(2f)) {
                     TextButton(onClick = onAdd, enabled = count > 0 && hasPlaylists,
-                        modifier = Modifier.testTag("selection_add")) {
-                        Text(if (targetPlaylistName == null) stringResource(R.string.add_to_playlist)
+                        modifier = Modifier.fillMaxWidth().testTag("selection_add")) {
+                        ControlLabel(if (targetPlaylistName == null) stringResource(R.string.add_to_playlist)
                             else stringResource(R.string.add_to_named_playlist, targetPlaylistName))
                     }
                     TextButton(onClick = onCreate, enabled = count > 0,
-                        modifier = Modifier.testTag("selection_create")) {
-                        Text(stringResource(R.string.create_playlist))
+                        modifier = Modifier.fillMaxWidth().testTag("selection_create")) {
+                        ControlLabel(stringResource(R.string.create_playlist))
                     }
                 }
-                TextButton(onClick = onToggleAll, modifier = Modifier.testTag("selection_all")) {
-                    Text(stringResource(if (allSelected) R.string.deselect_all else R.string.select_all))
+                TextButton(onClick = onToggleAll, modifier = Modifier.weight(1f).testTag("selection_all")) {
+                    ControlLabel(stringResource(if (allSelected) R.string.deselect_all else R.string.select_all))
                 }
             }
         }

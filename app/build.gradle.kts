@@ -29,6 +29,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Set false to hide the language-settings entry in every build; the implementation stays.
+        buildConfigField("boolean", "SHOW_LANGUAGE_SETTINGS", "true")
     }
 
     signingConfigs {
@@ -61,7 +63,14 @@ android {
         jvmTarget = "11"
     }
     buildFeatures {
+        buildConfig = true
         compose = true
+    }
+    bundle {
+        // Offline language switching needs every translation installed, including Play bundles.
+        language {
+            enableSplit = false
+        }
     }
     testOptions {
         // Pure-JVM tests exercise MusicLogic and Song; let Android framework

@@ -2,6 +2,7 @@ package com.nomesame.musicmonster.ui.screens
 
 import androidx.compose.ui.res.stringResource
 import com.nomesame.musicmonster.R
+import com.nomesame.musicmonster.ui.components.ControlLabel
 import android.os.SystemClock
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -77,10 +78,10 @@ fun SleepTimerPanel(
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             listOf(15L, 30L, 60L).forEach { minutes ->
-                Button(onClick = {
+                Button(modifier = Modifier.weight(1f), onClick = {
                     val totalMs = minutes * 60_000L
                     sleepTotalMs = totalMs
                     sleepRemainingMs = totalMs
@@ -88,7 +89,7 @@ fun SleepTimerPanel(
                     timerRunning = true
                     onStartTimer(totalMs, 10_000L)
                 }) {
-                    Text(stringResource(R.string.minutes_short, minutes))
+                    ControlLabel(stringResource(R.string.minutes_short, minutes))
                 }
             }
         }
@@ -107,7 +108,7 @@ fun SleepTimerPanel(
             OutlinedTextField(
                 value = hoursText,
                 onValueChange = { hoursText = it.filter { c -> c in '0'..'9' }.take(2) },
-                label = { Text(stringResource(R.string.hours), color = textMuted) },
+                label = { ControlLabel(stringResource(R.string.hours), color = textMuted) },
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
                 colors = fieldColors,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -117,7 +118,7 @@ fun SleepTimerPanel(
             OutlinedTextField(
                 value = minutesText,
                 onValueChange = { minutesText = it.filter { c -> c in '0'..'9' }.take(2) },
-                label = { Text(stringResource(R.string.minutes), color = textMuted) },
+                label = { ControlLabel(stringResource(R.string.minutes), color = textMuted) },
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
                 colors = fieldColors,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -127,7 +128,7 @@ fun SleepTimerPanel(
             OutlinedTextField(
                 value = secondsText,
                 onValueChange = { secondsText = it.filter { c -> c in '0'..'9' }.take(2) },
-                label = { Text(stringResource(R.string.seconds), color = textMuted) },
+                label = { ControlLabel(stringResource(R.string.seconds), color = textMuted) },
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
                 colors = fieldColors,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -138,9 +139,9 @@ fun SleepTimerPanel(
         Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Button(onClick = {
+            Button(modifier = Modifier.weight(1f), onClick = {
                 val h = hoursText.toLongOrNull() ?: 0L
                 val m = minutesText.toLongOrNull() ?: 0L
                 val s = secondsText.toLongOrNull() ?: 0L
@@ -153,15 +154,15 @@ fun SleepTimerPanel(
                     onStartTimer(totalMs, 10_000L)
                 }
             }) {
-                Text(stringResource(R.string.start))
+                ControlLabel(stringResource(R.string.start))
             }
-            Button(onClick = {
+            Button(modifier = Modifier.weight(1f), onClick = {
                 onCancelTimer()
                 timerRunning = false
                 sleepTargetElapsedMs = null
                 sleepRemainingMs = sleepTotalMs
             }) {
-                Text(stringResource(R.string.cancel))
+                ControlLabel(stringResource(R.string.cancel))
             }
         }
         Spacer(modifier = Modifier.height(6.dp))

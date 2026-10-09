@@ -3,6 +3,11 @@
     <string name="app_name">Music Monster</string>
     <string name="no_song_selected">Kein Song ausgewählt</string>
     <string name="accent_color">Akzentfarbe</string>
+    <string name="settings">Einstellungen</string>
+    <string name="app_language">App-Sprache</string>
+    <string name="language_system">Systemsprache</string>
+    <string name="language_english">English</string>
+    <string name="language_german">Deutsch</string>
     <string name="open_folder">Ordner öffnen</string>
     <string name="music">Musik</string>
     <string name="no_songs_found">Keine Songs auf diesem Gerät gefunden</string>

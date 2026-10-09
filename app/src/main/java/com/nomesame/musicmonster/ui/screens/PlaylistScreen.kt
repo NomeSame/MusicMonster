@@ -2,6 +2,7 @@ package com.nomesame.musicmonster.ui.screens
 
 import androidx.compose.ui.res.stringResource
 import com.nomesame.musicmonster.R
+import com.nomesame.musicmonster.ui.components.ControlLabel
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -90,7 +91,7 @@ fun PlaylistScreen(
                     onClick = { onAddSongs(activePlaylist) },
                     modifier = Modifier.padding(bottom = 8.dp).testTag("playlist_add_songs")
                 ) {
-                    Text(stringResource(R.string.add_songs))
+                    ControlLabel(stringResource(R.string.add_songs))
                 }
             }
 
@@ -139,17 +140,17 @@ fun PlaylistScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(onClick = onExport, modifier = Modifier.weight(1f)) {
-                        Text(stringResource(R.string.export))
+                        ControlLabel(stringResource(R.string.export))
                     }
                     Button(onClick = onImport, modifier = Modifier.weight(1f)) {
-                        Text(stringResource(R.string.import_playlists))
+                        ControlLabel(stringResource(R.string.import_playlists))
                     }
                 }
                 Button(
                     onClick = { showCreatePlaylistDialog = true },
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
                 ) {
-                    Text(stringResource(R.string.new_playlist))
+                    ControlLabel(stringResource(R.string.new_playlist))
                 }
             }
 
@@ -204,7 +205,7 @@ fun PlaylistScreen(
                 OutlinedTextField(
                     value = createPlaylistName,
                     onValueChange = { createPlaylistName = it.take(24) },
-                    label = { Text(stringResource(R.string.playlist_name), color = textMuted) },
+                    label = { ControlLabel(stringResource(R.string.playlist_name), color = textMuted) },
                     textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = accent,
@@ -227,7 +228,7 @@ fun PlaylistScreen(
                     createPlaylistName = ""
                     showCreatePlaylistDialog = false
                 }) {
-                    Text(stringResource(R.string.create))
+                    ControlLabel(stringResource(R.string.create))
                 }
             },
             dismissButton = {
@@ -235,7 +236,7 @@ fun PlaylistScreen(
                     createPlaylistName = ""
                     showCreatePlaylistDialog = false
                 }) {
-                    Text(stringResource(R.string.cancel))
+                    ControlLabel(stringResource(R.string.cancel))
                 }
             }
         )

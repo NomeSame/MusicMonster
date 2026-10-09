@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.app.ActivityCompat
 import com.nomesame.musicmonster.ui.screens.PlayerScreen
+import com.nomesame.musicmonster.ui.components.AppLanguageContent
 import com.nomesame.musicmonster.ui.theme.MyApplicationTheme
 
 
@@ -131,21 +132,24 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val accent by viewModel.accentColor.collectAsState()
-            MyApplicationTheme(accent = accent) {
-                val controllerReady by viewModel.playbackConnection.isReady.collectAsState()
-                val playbackUnavailable by viewModel.playbackUnavailable.collectAsState()
-                if (controllerReady || playbackUnavailable) {
-                    PlayerScreen(
-                        viewModel = viewModel,
-                        onPickFolder = { selectFolderLauncher.launch(null) },
-                        onExport = { exportPlaylistsLauncher.launch("musicbox_playlists.json") },
-                        onImport = { importPlaylistsLauncher.launch(arrayOf("application/json")) },
-                        onAccentChange = { viewModel.setAccentColor(it) },
-                        onPickBackground = { pickBackgroundLauncher.launch(arrayOf("image/*")) }
-                    )
-                } else {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+            val language by viewModel.appLanguage.collectAsState()
+            AppLanguageContent(language) {
+                MyApplicationTheme(accent = accent) {
+                    val controllerReady by viewModel.playbackConnection.isReady.collectAsState()
+                    val playbackUnavailable by viewModel.playbackUnavailable.collectAsState()
+                    if (controllerReady || playbackUnavailable) {
+                        PlayerScreen(
+                            viewModel = viewModel,
+                            onPickFolder = { selectFolderLauncher.launch(null) },
+                            onExport = { exportPlaylistsLauncher.launch("musicbox_playlists.json") },
+                            onImport = { importPlaylistsLauncher.launch(arrayOf("application/json")) },
+                            onAccentChange = { viewModel.setAccentColor(it) },
+                            onPickBackground = { pickBackgroundLauncher.launch(arrayOf("image/*")) }
+                        )
+                    } else {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
                     }
                 }
             }

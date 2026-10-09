@@ -222,7 +222,7 @@ fun AccentPickerDialog(
                         onClick = onPickBackground,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
+                        ControlLabel(
                             text = if (hasCustomBgImage) stringResource(R.string.change_image) else stringResource(R.string.choose_image),
                             color = selected
                         )
@@ -232,7 +232,7 @@ fun AccentPickerDialog(
                             onClick = onResetBackground,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(text = stringResource(R.string.default_image), color = colors.textMuted)
+                            ControlLabel(text = stringResource(R.string.default_image), color = colors.textMuted)
                         }
                     }
 
@@ -271,7 +271,7 @@ fun AccentPickerDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text(text = stringResource(R.string.done), color = selected)
+                ControlLabel(text = stringResource(R.string.done), color = selected)
             }
         }
     )

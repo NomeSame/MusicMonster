@@ -6,6 +6,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import com.nomesame.musicmonster.R
+import com.nomesame.musicmonster.ui.components.ControlLabel
 import com.nomesame.musicmonster.ui.components.SongSelectionBar
 import com.nomesame.musicmonster.ui.components.SelectPlaylistDialog
 import com.nomesame.musicmonster.ui.components.CreatePlaylistDialog
@@ -71,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import com.nomesame.musicmonster.MainViewModel
 import com.nomesame.musicmonster.MusicLogic
 import com.nomesame.musicmonster.ui.components.AccentPickerDialog
+import com.nomesame.musicmonster.ui.components.AppSettingsButton
 import com.nomesame.musicmonster.ui.components.AppBackground
 import com.nomesame.musicmonster.ui.components.FastScroller
 import com.nomesame.musicmonster.ui.components.rememberBackgroundBitmap
@@ -148,6 +150,7 @@ fun PlayerScreen(
     val customBgScrim = viewModel.customBgScrim.collectAsState().value
     val pendingPaletteAccent = viewModel.pendingPaletteAccent.collectAsState().value
     val playerOpacity by viewModel.playerOpacity.collectAsState()
+    val appLanguage by viewModel.appLanguage.collectAsState()
     val customBgBitmap = rememberBackgroundBitmap(if (customBgEnabled) customBgUri else null)
     val useDefaultBgImage = customBgEnabled && customBgUri == null
     // 0 = list covers everything, 1 = list fully pulled down (screens revealed).
@@ -202,6 +205,7 @@ fun PlayerScreen(
                         tint = iconGlow
                     )
                 }
+                AppSettingsButton(appLanguage, viewModel::setAppLanguage)
             }
 
             AnimatedContent(
@@ -617,13 +621,13 @@ fun PlayerScreen(
                             )
                             Spacer(Modifier.size(8.dp))
                             Button(onClick = { viewModel.applyPendingPalette() }) {
-                                Text(stringResource(R.string.use_color))
+                                ControlLabel(stringResource(R.string.use_color))
                             }
                         }
                     },
                     dismissButton = {
                         Button(onClick = { viewModel.dismissPendingPalette() }) {
-                            Text(stringResource(R.string.keep_color))
+                            ControlLabel(stringResource(R.string.keep_color))
                         }
                     }
                 )

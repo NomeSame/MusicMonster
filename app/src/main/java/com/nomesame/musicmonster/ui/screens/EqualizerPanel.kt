@@ -2,6 +2,7 @@ package com.nomesame.musicmonster.ui.screens
 
 import androidx.compose.ui.res.stringResource
 import com.nomesame.musicmonster.R
+import com.nomesame.musicmonster.ui.components.ControlLabel
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import androidx.compose.foundation.layout.Arrangement
@@ -130,7 +131,7 @@ fun EqualizerPanel(
                         modifier = Modifier.weight(1f),
                         onClick = { onPresetSelected(label, buildPresetLevels(label, equalizer)) }
                     ) {
-                        Text(text = localizedPreset(label))
+                        ControlLabel(text = localizedPreset(label))
                     }
                 }
             }
@@ -143,7 +144,7 @@ fun EqualizerPanel(
                         modifier = Modifier.weight(1f),
                         onClick = { onPresetSelected(label, buildPresetLevels(label, equalizer)) }
                     ) {
-                        Text(text = label)
+                        ControlLabel(text = localizedPreset(label))
                     }
                 }
                 Spacer(modifier = Modifier.weight(1f))

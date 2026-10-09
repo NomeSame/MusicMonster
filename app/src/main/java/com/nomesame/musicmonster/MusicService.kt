@@ -6,6 +6,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import com.nomesame.musicmonster.data.LanguageRepository
+import com.nomesame.musicmonster.data.MediaAppearanceRepository
+import com.nomesame.musicmonster.playback.MediaArtworkController
+import com.nomesame.musicmonster.playback.MediaArtworkLoader
+import androidx.core.graphics.ColorUtils
+import com.nomesame.musicmonster.localization.appLanguageContext
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
@@ -59,6 +65,16 @@ class MusicService : Service() {
         )
     }
     private val positionHandler = Handler(Looper.getMainLooper())
+    private val notificationHandler = Handler(Looper.getMainLooper())
+    private val notificationGate = NotificationRefreshGate()
+    private var pendingNotificationPlaying = false
+    private val notificationRefresh = Runnable {
+        if (!playerReleased && canPostNotifications()) {
+            getSystemService(NotificationManager::class.java)
+                .notify(NOTIFICATION_ID, buildNotification(pendingNotificationPlaying))
+            notificationGate.markPosted(SystemClock.uptimeMillis())
+        }
+    }
     private val sleepHandler = Handler(Looper.getMainLooper())
     private var sleepRunnable: Runnable? = null
     private var fadeRunnable: Runnable? = null
@@ -79,6 +95,18 @@ class MusicService : Service() {
     private val prefs: SharedPreferences by lazy {
         getSharedPreferences("music_prefs", MODE_PRIVATE)
     }
+
+    private val languageRepository by lazy { LanguageRepository(this) }
+    private val mediaArtwork by lazy {
+        val loader = MediaArtworkLoader(this)
+        MediaArtworkController(MediaAppearanceRepository(prefs), loader::load) { artworkChanged ->
+            if (artworkChanged) updateSessionMetadata()
+            updateNotification(player.isPlaying)
+        }
+    }
+
+    private fun playbackText(id: Int): String =
+        appLanguageContext(this, languageRepository.load()).getString(id)
 
     /** Single thread so two overlapping library scans can never interleave. */
     private val loadExecutor = Executors.newSingleThreadExecutor()
@@ -123,9 +151,7 @@ class MusicService : Service() {
         private val NEEDS_LIBRARY = setOf(ACTION_PLAY_PLAYLIST, ACTION_RELOAD_LIBRARY)
     }
 
-    override fun onCreate() {
-        super.onCreate()
-
+    private fun updateNotificationChannel() {
         // Notification channel
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             // LOW, not HIGH: the notification is re-posted on every track
@@ -134,14 +160,21 @@ class MusicService : Service() {
             // builds) for the whole listening session.
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                getString(R.string.app_name),
+                playbackText(R.string.app_name),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = getString(R.string.playback_channel_description)
+                description = playbackText(R.string.playback_channel_description)
                 setShowBadge(false)
             }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
+
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+
+        updateNotificationChannel()
 
         player = ExoPlayer.Builder(this).build()
         player.repeatMode = Player.REPEAT_MODE_ALL
@@ -302,6 +335,9 @@ class MusicService : Service() {
         // SD card. Scanning first made the crash a function of library size,
         // i.e. it only ever happened on other people's devices.
         startForeground(NOTIFICATION_ID, buildNotification(false))
+        notificationGate.markPosted(SystemClock.uptimeMillis())
+        // Artwork I/O must never delay the foreground-service deadline.
+        mediaArtwork.start()
         loadLibraryAsync(restoreLastSession = true)
     }
 
@@ -393,7 +429,7 @@ class MusicService : Service() {
 
     private fun updateSessionMetadata() {
         val idx = player.currentMediaItemIndex
-        val currentTitle = if (idx in titles.indices) titles[idx] else getString(R.string.no_song_selected)
+        val currentTitle = if (idx in titles.indices) titles[idx] else playbackText(R.string.no_song_selected)
         val currentId = if (idx in titles.indices) player.getMediaItemAt(idx).mediaId else null
         val duration = player.duration.takeIf { it > 0L } ?: 0L
 
@@ -402,6 +438,9 @@ class MusicService : Service() {
                 .putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, currentId)
                 .putString(MediaMetadataCompat.METADATA_KEY_TITLE, currentTitle)
                 .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration)
+                .apply {
+                    mediaArtwork.artwork?.let { putBitmap(MediaMetadataCompat.METADATA_KEY_ART, it) }
+                }
                 .build()
         )
     }
@@ -465,6 +504,8 @@ class MusicService : Service() {
             return START_STICKY
         }
         if (intent?.action == ACTION_REFRESH_NOTIFICATION) {
+            updateNotificationChannel()
+            updateSessionMetadata()
             updateNotification(player.isPlaying)
             return START_STICKY
         }
@@ -489,6 +530,8 @@ class MusicService : Service() {
     }
 
     override fun onDestroy() {
+        mediaArtwork.close()
+        notificationHandler.removeCallbacks(notificationRefresh)
         savePlaybackState()
         session.isActive = false
         session.release()
@@ -555,6 +598,7 @@ class MusicService : Service() {
             .intOr("accent_color", Color.parseColor("#E58B3C"))
 
     private fun buildNotification(isPlaying: Boolean): Notification {
+        val text = appLanguageContext(this, languageRepository.load())
         val accentInt = accentColorInt()
         val playPauseIcon = if (isPlaying) {
             android.R.drawable.ic_media_pause
@@ -577,13 +621,20 @@ class MusicService : Service() {
             )
 
         val idx = player.currentMediaItemIndex
-        val currentTitle = if (idx in titles.indices) titles[idx] else getString(R.string.no_song_selected)
+        val currentTitle = if (idx in titles.indices) titles[idx] else text.getString(R.string.no_song_selected)
         val shuffleOn = player.shuffleModeEnabled
-        val shuffleLabel = if (shuffleOn) getString(R.string.shuffle_on) else getString(R.string.shuffle_off)
+        val shuffleLabel = if (shuffleOn) text.getString(R.string.shuffle_on) else text.getString(R.string.shuffle_off)
 
         val duration = player.duration.takeIf { it > 0L } ?: 0L
         val position = player.currentPosition.coerceAtLeast(0L)
         val contentView = RemoteViews(packageName, R.layout.notification_music_monster).apply {
+            setInt(R.id.notif_root, "setBackgroundColor",
+                ColorUtils.blendARGB(Color.rgb(10, 10, 12), accentInt, 0.12f))
+            // Keep text readable even when the selected accent itself is near black.
+            val captionColor = ColorUtils.blendARGB(Color.WHITE, accentInt, 0.15f)
+            setTextColor(R.id.notif_title, captionColor)
+            setTextColor(R.id.notif_time_current, captionColor)
+            setTextColor(R.id.notif_time_duration, captionColor)
             setTextViewText(R.id.notif_title, currentTitle)
             setTextViewText(R.id.notif_time_current, MusicLogic.formatTime(position))
             setTextViewText(R.id.notif_time_duration, MusicLogic.formatTime(duration))
@@ -596,6 +647,7 @@ class MusicService : Service() {
         }
 
         val publicNotification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setLargeIcon(mediaArtwork.artwork)
             .setContentIntent(openPlayerIntent)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(currentTitle)
@@ -607,9 +659,9 @@ class MusicService : Service() {
             .setOngoing(isPlaying)
             .setColor(accentInt)
             .setColorized(true)
-            .addAction(android.R.drawable.ic_media_previous, getString(R.string.previous), pendingIntentPrev)
-            .addAction(playPauseIcon, if (isPlaying) getString(R.string.pause) else getString(R.string.play), pendingIntentPlayPause)
-            .addAction(android.R.drawable.ic_media_next, getString(R.string.next), pendingIntentNext)
+            .addAction(android.R.drawable.ic_media_previous, text.getString(R.string.previous), pendingIntentPrev)
+            .addAction(playPauseIcon, if (isPlaying) text.getString(R.string.pause) else text.getString(R.string.play), pendingIntentPlayPause)
+            .addAction(android.R.drawable.ic_media_next, text.getString(R.string.next), pendingIntentNext)
             .setStyle(
                 androidx.media.app.NotificationCompat.MediaStyle()
                     .setMediaSession(session.sessionToken)
@@ -618,6 +670,7 @@ class MusicService : Service() {
             .build()
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setLargeIcon(mediaArtwork.artwork)
             .setContentIntent(openPlayerIntent)
             .setSmallIcon(R.drawable.ic_notification)
             // Use the current track title as the notification title so that
@@ -633,9 +686,9 @@ class MusicService : Service() {
             .setOngoing(isPlaying)
             .setColor(accentInt)
             .setColorized(true)
-            .addAction(android.R.drawable.ic_media_previous, getString(R.string.previous), pendingIntentPrev)
-            .addAction(playPauseIcon, if (isPlaying) getString(R.string.pause) else getString(R.string.play), pendingIntentPlayPause)
-            .addAction(android.R.drawable.ic_media_next, getString(R.string.next), pendingIntentNext)
+            .addAction(android.R.drawable.ic_media_previous, text.getString(R.string.previous), pendingIntentPrev)
+            .addAction(playPauseIcon, if (isPlaying) text.getString(R.string.pause) else text.getString(R.string.play), pendingIntentPlayPause)
+            .addAction(android.R.drawable.ic_media_next, text.getString(R.string.next), pendingIntentNext)
             .addAction(R.drawable.ic_shuffle, shuffleLabel, pendingIntentShuffle)
             .setCustomContentView(contentView)
             .setCustomBigContentView(contentView)
@@ -651,8 +704,12 @@ class MusicService : Service() {
     @SuppressLint("MissingPermission")
     private fun updateNotification(isPlaying: Boolean) {
         if (!canPostNotifications()) return
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(NOTIFICATION_ID, buildNotification(isPlaying))
+        // SystemUI drops excessive updates, including the final language/design change.
+        // Coalesce to the latest state with a fixed next deadline, not a trailing debounce.
+        pendingNotificationPlaying = isPlaying
+        notificationHandler.removeCallbacks(notificationRefresh)
+        notificationHandler.postDelayed(notificationRefresh,
+            notificationGate.delayAt(SystemClock.uptimeMillis()))
     }
 
     private fun canPostNotifications(): Boolean {

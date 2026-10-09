@@ -26,8 +26,8 @@ fun SelectPlaylistDialog(playlists: List<Playlist>, onSelect: (Playlist) -> Unit
                 items(playlists, key = { it.id }) { playlist ->
                     TextButton(onClick = { onSelect(playlist) }, modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.fillMaxWidth()) {
-                            Text(playlist.name, color = colors.textPrimary)
-                            Text(pluralStringResource(R.plurals.song_count, playlist.songIds.size, playlist.songIds.size),
+                            ControlLabel(playlist.name, color = colors.textPrimary)
+                            ControlLabel(pluralStringResource(R.plurals.song_count, playlist.songIds.size, playlist.songIds.size),
                                 color = colors.textMuted, style = MaterialTheme.typography.labelSmall)
                         }
                     }
@@ -35,7 +35,7 @@ fun SelectPlaylistDialog(playlists: List<Playlist>, onSelect: (Playlist) -> Unit
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
+        dismissButton = { TextButton(onClick = onDismiss) { ControlLabel(stringResource(R.string.cancel)) } }
     )
 }
 
@@ -48,14 +48,14 @@ fun CreatePlaylistDialog(name: String, onNameChange: (String) -> Unit, onConfirm
         title = { Text(stringResource(R.string.create_playlist), color = colors.textPrimary) },
         text = {
             OutlinedTextField(value = name, onValueChange = { onNameChange(it.take(24)) },
-                label = { Text(stringResource(R.string.playlist_name)) }, singleLine = true,
+                label = { ControlLabel(stringResource(R.string.playlist_name)) }, singleLine = true,
                 modifier = Modifier.testTag("playlist_name"))
         },
         confirmButton = {
             TextButton(onClick = onConfirm, enabled = name.isNotBlank(), modifier = Modifier.testTag("playlist_confirm")) {
-                Text(stringResource(R.string.ok))
+                ControlLabel(stringResource(R.string.ok))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
+        dismissButton = { TextButton(onClick = onDismiss) { ControlLabel(stringResource(R.string.cancel)) } }
     )
 }

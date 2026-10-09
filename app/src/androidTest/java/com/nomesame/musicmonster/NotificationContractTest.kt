@@ -19,6 +19,10 @@ import org.junit.Assert.assertTrue
 import org.junit.BeforeClass
 import org.junit.Test
 import org.junit.runner.RunWith
+import androidx.lifecycle.ViewModelStore
+import com.nomesame.musicmonster.data.LanguageRepository
+import com.nomesame.musicmonster.model.AppLanguage
+import com.nomesame.musicmonster.localization.appLanguageContext
 
 /**
  * Runtime contract of the media notification. These can only be answered on a
@@ -98,6 +102,59 @@ class NotificationContractTest {
         val sessionActivity = controller.sessionActivity
         assertEquals("System media card must open our own MainActivity", expectedPlayerIntent(), sessionActivity)
         assertEquals("Session and notification must use the same destination", notification.contentIntent, sessionActivity)
+    }
+
+    @Test
+    fun languageRefreshUpdatesBothCardsWithoutReplacingMediaSession() {
+        awaitServiceNotification() ?: throw AssertionError("Missing foreground notification")
+        val token = MusicService.sessionToken ?: throw AssertionError("Missing session")
+        val prefs = context.getSharedPreferences(LanguageRepository.PREFS_NAME, Context.MODE_PRIVATE)
+        val original = prefs.all[LanguageRepository.KEY_LANGUAGE]
+        val store = ViewModelStore()
+        lateinit var vm: MainViewModel
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            vm = MainViewModel(context.applicationContext as android.app.Application)
+            store.put("language_fixture", vm)
+        }
+        try {
+            for (language in listOf(AppLanguage.GERMAN, AppLanguage.ENGLISH)) {
+                InstrumentationRegistry.getInstrumentation().runOnMainSync { vm.setAppLanguage(language) }
+                val expected = appLanguageContext(context, language).getString(R.string.previous)
+                val manager = context.getSystemService(NotificationManager::class.java)
+                val deadline = SystemClock.uptimeMillis() + DEADLINE_MS
+                var translated: Notification? = null
+                while (SystemClock.uptimeMillis() < deadline) {
+                    val current = manager.activeNotifications.firstOrNull {
+                        it.id == MusicService.NOTIFICATION_ID
+                    }?.notification
+                    if (current?.actions?.firstOrNull()?.title?.toString() == expected &&
+                        current.publicVersion?.actions?.firstOrNull()?.title?.toString() == expected) {
+                        translated = current
+                        break
+                    }
+                    SystemClock.sleep(50L)
+                }
+                assertNotNull("Both notification cards must use ${language.tag}", translated)
+                assertEquals("Language change must not replace the playing session", token, MusicService.sessionToken)
+            }
+        } finally {
+            // Restore even corrupt/type-mismatched original values; never leave test language behind.
+            val editor = prefs.edit().remove(LanguageRepository.KEY_LANGUAGE)
+            when (original) {
+                is String -> editor.putString(LanguageRepository.KEY_LANGUAGE, original)
+                is Int -> editor.putInt(LanguageRepository.KEY_LANGUAGE, original)
+                is Long -> editor.putLong(LanguageRepository.KEY_LANGUAGE, original)
+                is Float -> editor.putFloat(LanguageRepository.KEY_LANGUAGE, original)
+                is Boolean -> editor.putBoolean(LanguageRepository.KEY_LANGUAGE, original)
+                is Set<*> -> editor.putStringSet(LanguageRepository.KEY_LANGUAGE, original.filterIsInstance<String>().toSet())
+            }
+            editor.commit()
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                context.startService(Intent(context, MusicService::class.java)
+                    .setAction(MusicService.ACTION_REFRESH_NOTIFICATION))
+                store.clear()
+            }
+        }
     }
 
     private fun expectedPlayerIntent(): PendingIntent {
