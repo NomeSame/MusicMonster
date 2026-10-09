@@ -92,4 +92,12 @@
         <item quantity="one">%1$d Song ausgewählt</item>
         <item quantity="other">%1$d Songs ausgewählt</item>
     </plurals>
+    <string name="card_image_crop">Karten-Bildausschnitt</string>
+    <string name="card_crop_description">Bild ziehen oder Regler verwenden. Änderungen wirken sofort auf die externe Player-Karte. Das System kann das Bild zusätzlich beschneiden.</string>
+    <string name="card_crop_preview">Aktueller Bildausschnitt der externen Karte</string>
+    <string name="card_crop_unavailable">Kein Hintergrundbild verfügbar.</string>
+    <string name="card_crop_horizontal">Horizontale Position</string>
+    <string name="card_crop_vertical">Vertikale Position</string>
+    <string name="card_crop_center">Zentrieren</string>
+    <string name="card_crop_zoom">Zoom: %1$.1f×</string>
 </resources>

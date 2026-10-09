@@ -77,6 +77,8 @@ android {
         // stubs (e.g. Uri.parse) return default values instead of throwing
         // "not mocked", so fixtures can construct Songs on the JVM.
         unitTests.isReturnDefaultValues = true
+        // Service notification regression tests need the real bundled strings/layouts.
+        unitTests.isIncludeAndroidResources = true
     }
 }
 

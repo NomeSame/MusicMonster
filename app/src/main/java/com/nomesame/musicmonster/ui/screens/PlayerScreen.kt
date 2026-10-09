@@ -50,6 +50,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -72,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import com.nomesame.musicmonster.MainViewModel
 import com.nomesame.musicmonster.MusicLogic
 import com.nomesame.musicmonster.ui.components.AccentPickerDialog
+import com.nomesame.musicmonster.ui.components.ArtworkCropDialog
 import com.nomesame.musicmonster.ui.components.AppSettingsButton
 import com.nomesame.musicmonster.ui.components.AppBackground
 import com.nomesame.musicmonster.ui.components.FastScroller
@@ -116,6 +118,14 @@ fun PlayerScreen(
         viewModel.songSelection.finish()
     }
     var showAccentPicker by rememberSaveable { mutableStateOf(false) }
+    var showArtworkCrop by rememberSaveable { mutableStateOf(false) }
+    val artworkCrop by viewModel.artworkCrop.position.collectAsState()
+    val artworkPreview by viewModel.artworkCrop.preview.collectAsState()
+    val artworkPreviewLoading by viewModel.artworkCrop.loading.collectAsState()
+    DisposableEffect(showArtworkCrop) {
+        if (showArtworkCrop) viewModel.artworkCrop.openPreview()
+        onDispose { viewModel.artworkCrop.closePreview() }
+    }
     val swipePagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
     val listState = rememberLazyListState()
 
@@ -595,8 +605,14 @@ fun PlayerScreen(
                     onPickBackground = onPickBackground,
                     onResetBackground = { viewModel.resetCustomBackground() },
                     playerOpacity = playerOpacity,
-                    onPlayerOpacityChange = { viewModel.setPlayerOpacity(it) }
+                    onPlayerOpacityChange = { viewModel.setPlayerOpacity(it) },
+                    onEditArtworkCrop = { showArtworkCrop = true }
                 )
+            }
+
+            if (showArtworkCrop) {
+                ArtworkCropDialog(artworkPreview, artworkPreviewLoading, artworkCrop, customBgScrim,
+                    viewModel.artworkCrop::setPosition, { showArtworkCrop = false })
             }
 
             // After picking an image, offer to adopt a matching accent theme.

@@ -22,6 +22,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.nomesame.musicmonster.data.BackgroundRepository
 import com.nomesame.musicmonster.data.MediaAppearanceRepository
+import com.nomesame.musicmonster.model.ArtworkCrop
 import com.nomesame.musicmonster.playback.MediaArtworkLoader
 import java.io.File
 import org.junit.After
@@ -42,10 +43,12 @@ class MediaArtworkInstrumentedTest {
     private val store = ViewModelStore()
     private val files = mutableListOf<File>()
     private val keys = listOf(MediaAppearanceRepository.KEY_ACCENT, BackgroundRepository.KEY_ENABLED,
-        BackgroundRepository.KEY_URI, BackgroundRepository.KEY_SCRIM)
+        BackgroundRepository.KEY_URI, BackgroundRepository.KEY_SCRIM,
+        MediaAppearanceRepository.KEY_CROP_X, MediaAppearanceRepository.KEY_CROP_Y,
+        MediaAppearanceRepository.KEY_CROP_ZOOM)
 
     @Before fun setup() {
-        TestPermissions.grantAll()
+        // Artwork publication must also work while ordinary notification permission is denied.
         prefs = context.getSharedPreferences("music_prefs", Context.MODE_PRIVATE)
         originals = keys.associateWith { prefs.all[it] }
         val intent = Intent(context, MusicService::class.java)
@@ -55,6 +58,7 @@ class MediaArtworkInstrumentedTest {
             vm = MainViewModel(context.applicationContext as Application)
             store.put("artwork_fixture", vm)
             controller = MediaControllerCompat(context, MusicService.sessionToken!!)
+            vm.artworkCrop.setPosition(ArtworkCrop())
             vm.resetCustomBackground()
             vm.setCustomBgEnabled(true)
             vm.setCustomBgScrim(0f)
@@ -213,4 +217,71 @@ class MediaArtworkInstrumentedTest {
         await { notification()?.color == Color.MAGENTA && notification()?.publicVersion?.color == Color.MAGENTA }
         assertEquals(token, MusicService.sessionToken)
     }
+
+    private fun stripedFixture(horizontal: Boolean): Uri {
+        val file = File.createTempFile("crop-fixture-", ".png", context.cacheDir)
+        files.add(file)
+        val image = Bitmap.createBitmap(if (horizontal) 192 else 64, if (horizontal) 64 else 192,
+            Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(image)
+        listOf(Color.RED, Color.GREEN, Color.BLUE).forEachIndexed { index, color ->
+            val paint = android.graphics.Paint().apply { this.color = color }
+            canvas.drawRect(if (horizontal) index * 64f else 0f, if (horizontal) 0f else index * 64f,
+                if (horizontal) (index + 1) * 64f else 64f, if (horizontal) 64f else (index + 1) * 64f, paint)
+        }
+        try { file.outputStream().use { assertTrue(image.compress(Bitmap.CompressFormat.PNG, 100, it)) } }
+        finally { image.recycle() }
+        return Uri.fromFile(file)
+    }
+
+    @Test fun verticalCropUpdatesBothCardsAndSessionWithoutReplacingPlayback() {
+        val token = MusicService.sessionToken
+        main { vm.onCustomBackgroundPicked(stripedFixture(false)) }
+        awaitColor(Color.GREEN)
+        main { vm.artworkCrop.setPosition(ArtworkCrop(y = 0f)) }
+        awaitColor(Color.RED)
+        main { vm.artworkCrop.setPosition(ArtworkCrop(y = 1f)) }
+        awaitColor(Color.BLUE)
+        main { vm.artworkCrop.setPosition(ArtworkCrop()) }
+        awaitColor(Color.GREEN)
+        assertEquals(token, MusicService.sessionToken)
+    }
+
+    @Test fun horizontalCropUsesTheCurrentlySelectedLandscapeAndHonorsBackgroundToggle() {
+        main { vm.onCustomBackgroundPicked(stripedFixture(true)) }
+        awaitColor(Color.GREEN)
+        main { vm.artworkCrop.setPosition(ArtworkCrop(x = 0f)) }
+        awaitColor(Color.RED)
+        main { vm.artworkCrop.setPosition(ArtworkCrop(x = 1f)) }
+        awaitColor(Color.BLUE)
+        main { vm.setCustomBgEnabled(false) }
+        await { artwork() == null && notification()?.getLargeIcon() == null }
+        main { vm.setCustomBgEnabled(true) }
+        awaitColor(Color.BLUE)
+    }
+
+
+    @Test fun zoomChangesPublishedArtworkPixelsAndRemainsBounded() {
+        val file = File.createTempFile("zoom-fixture-", ".png", context.cacheDir)
+        files.add(file)
+        val image = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+        val canvas = android.graphics.Canvas(image)
+        canvas.drawRect(48f, 48f, 80f, 80f, android.graphics.Paint().apply { color = Color.GREEN })
+        try { file.outputStream().use { assertTrue(image.compress(Bitmap.CompressFormat.PNG, 100, it)) } }
+        finally { image.recycle() }
+        main { vm.onCustomBackgroundPicked(Uri.fromFile(file)) }
+        await { artwork()?.getPixel(8, 128) == Color.RED }
+        main { vm.artworkCrop.setPosition(ArtworkCrop(zoom = 4f)) }
+        awaitColor(Color.GREEN)
+        await {
+            val cards = listOf(notification(), notification()?.publicVersion)
+            artwork()?.getPixel(8, 128) == Color.GREEN && cards.all { card ->
+                val icon = (card?.getLargeIcon()?.loadDrawable(context) as? BitmapDrawable)?.bitmap
+                icon?.getPixel(icon.width / 16, icon.height / 2) == Color.GREEN
+            }
+        }
+        assertEquals(256, artwork()!!.width)
+        assertTrue(artwork()!!.allocationByteCount <= 256 * 256 * 4)
+    }
+
 }

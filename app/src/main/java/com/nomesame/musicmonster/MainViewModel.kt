@@ -14,6 +14,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
 import com.nomesame.musicmonster.audio.EqualizerController
+import com.nomesame.musicmonster.data.MediaAppearanceRepository
+import com.nomesame.musicmonster.playback.MediaArtworkLoader
 import com.nomesame.musicmonster.data.BackgroundRepository
 import com.nomesame.musicmonster.data.LanguageRepository
 import com.nomesame.musicmonster.model.AppLanguage
@@ -52,6 +54,9 @@ class MainViewModel(application: Application, savedState: SavedStateHandle = Sav
     private val playlistRepository = PlaylistRepository(prefs, application.contentResolver)
     private val songRepository = SongRepository(application, prefs)
     private val backgroundRepository = BackgroundRepository(prefs)
+    val artworkCrop = ArtworkCropState(MediaAppearanceRepository(prefs), viewModelScope) { appearance ->
+        MediaArtworkLoader(application).loadPreview(appearance)
+    }
     private val paletteEngine = PaletteEngine(application)
     private val languageRepository = LanguageRepository(application)
     private val _appLanguage = MutableStateFlow(languageRepository.load())
@@ -99,11 +104,11 @@ class MainViewModel(application: Application, savedState: SavedStateHandle = Sav
 
     // --- Player card opacity ---------------------------------------------------
 
-    private val _playerOpacity = MutableStateFlow(prefs.floatOr(KEY_PLAYER_OPACITY, 1f).coerceIn(0f, 1f))
+    private val _playerOpacity = MutableStateFlow(prefs.floatOr(KEY_PLAYER_OPACITY, DEFAULT_PLAYER_OPACITY).coerceIn(0f, 1f))
     val playerOpacity: StateFlow<Float> = _playerOpacity.asStateFlow()
 
     fun setPlayerOpacity(value: Float) {
-        val clamped = unitFloat(value, 1f)
+        val clamped = unitFloat(value, DEFAULT_PLAYER_OPACITY)
         prefs.edit().putFloat(KEY_PLAYER_OPACITY, clamped).apply()
         _playerOpacity.value = clamped
     }
@@ -366,6 +371,7 @@ class MainViewModel(application: Application, savedState: SavedStateHandle = Sav
      * when the app goes away, so do it here.
      */
     override fun onCleared() {
+        artworkCrop.close()
         playbackConnection.disconnect()
         equalizerController.setupForSession(0)
         super.onCleared()
@@ -373,5 +379,6 @@ class MainViewModel(application: Application, savedState: SavedStateHandle = Sav
 
     companion object {
         private const val KEY_PLAYER_OPACITY = "player_opacity"
+        private const val DEFAULT_PLAYER_OPACITY = 0.3f
     }
 }

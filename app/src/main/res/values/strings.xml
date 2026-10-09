@@ -92,4 +92,12 @@
         <item quantity="one">%1$d song selected</item>
         <item quantity="other">%1$d songs selected</item>
     </plurals>
+    <string name="card_image_crop">Card image crop</string>
+    <string name="card_crop_description">Drag the image or use the sliders. Changes apply immediately to the external player card. The system may crop the image further.</string>
+    <string name="card_crop_preview">Current external-card image crop</string>
+    <string name="card_crop_unavailable">No background image available.</string>
+    <string name="card_crop_horizontal">Horizontal position</string>
+    <string name="card_crop_vertical">Vertical position</string>
+    <string name="card_crop_center">Center</string>
+    <string name="card_crop_zoom">Zoom: %1$.1f×</string>
 </resources>

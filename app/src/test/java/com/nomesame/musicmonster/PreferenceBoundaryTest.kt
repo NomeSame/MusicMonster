@@ -37,7 +37,7 @@ class PreferenceBoundaryTest {
     @Test fun nanPlayerOpacityWriteCannotReachUi() {
         val vm = MainViewModel(app)
         vm.setPlayerOpacity(Float.NaN)
-        assertEquals(1f, vm.playerOpacity.value, 0f)
+        assertEquals(0.3f, vm.playerOpacity.value, 0f)
         assertTrue(prefs.getFloat("player_opacity", -1f).isFinite())
     }
     @Test fun nanViewModelScrimWriteCannotReachUi() {
@@ -47,7 +47,7 @@ class PreferenceBoundaryTest {
     }
     @Test fun restoredNanOpacityUsesDefault() {
         prefs.edit().putFloat("player_opacity", Float.NaN).commit()
-        assertEquals(1f, MainViewModel(app).playerOpacity.value, 0f)
+        assertEquals(0.3f, MainViewModel(app).playerOpacity.value, 0f)
     }
     @Test fun maximumPlaylistSequenceDoesNotProduceNegativeId() {
         prefs.edit().putString("playlists_json", """[{"id":"playlist_2147483647","name":"Max"}]""").commit()
@@ -59,4 +59,14 @@ class PreferenceBoundaryTest {
         assertFalse(second.id.contains("_-"))
         assertEquals(3, vm.playlists.map { it.id }.toSet().size)
     }
+    @Test fun missingPlayerOpacityDefaultsToThirtyPercent() {
+        assertEquals(0.3f, MainViewModel(app).playerOpacity.value, 0f)
+        assertFalse(prefs.contains("player_opacity"))
+    }
+    @Test fun newDefaultDoesNotOverwriteSavedPlayerOpacity() {
+        prefs.edit().putFloat("player_opacity", 0.8f).commit()
+        assertEquals(0.8f, MainViewModel(app).playerOpacity.value, 0f)
+        assertEquals(0.8f, prefs.getFloat("player_opacity", -1f), 0f)
+    }
+
 }

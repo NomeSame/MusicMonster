@@ -3,6 +3,8 @@ package com.nomesame.musicmonster.ui.components
 import androidx.compose.ui.res.stringResource
 import com.nomesame.musicmonster.R
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -76,8 +78,9 @@ fun AccentPickerDialog(
     onBgScrimChange: (Float) -> Unit = {},
     onPickBackground: () -> Unit = {},
     onResetBackground: () -> Unit = {},
-    playerOpacity: Float = 1f,
-    onPlayerOpacityChange: (Float) -> Unit = {}
+    playerOpacity: Float = 0.3f,
+    onPlayerOpacityChange: (Float) -> Unit = {},
+    onEditArtworkCrop: () -> Unit = {}
 ) {
     val colors = LocalAppColors.current
     val initial = remember { colorToHsv(current) }
@@ -100,7 +103,7 @@ fun AccentPickerDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = stringResource(R.string.accent_color), color = colors.textPrimary) },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 // Live preview
                 Box(
                     modifier = Modifier
@@ -234,6 +237,10 @@ fun AccentPickerDialog(
                         ) {
                             ControlLabel(text = stringResource(R.string.default_image), color = colors.textMuted)
                         }
+                    }
+
+                    OutlinedButton(onClick = onEditArtworkCrop, modifier = Modifier.fillMaxWidth()) {
+                        ControlLabel(stringResource(R.string.card_image_crop), color = selected)
                     }
 
                     Spacer(Modifier.height(AppSpacing.sm))

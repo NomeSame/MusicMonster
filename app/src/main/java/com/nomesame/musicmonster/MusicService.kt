@@ -1,6 +1,5 @@
 package com.nomesame.musicmonster
 
-import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,10 +8,10 @@ import android.content.Intent
 import com.nomesame.musicmonster.data.LanguageRepository
 import com.nomesame.musicmonster.data.MediaAppearanceRepository
 import com.nomesame.musicmonster.playback.MediaArtworkController
+import com.nomesame.musicmonster.playback.MediaCardNotificationRebuilder
 import com.nomesame.musicmonster.playback.MediaArtworkLoader
 import androidx.core.graphics.ColorUtils
 import com.nomesame.musicmonster.localization.appLanguageContext
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
 import android.os.Handler
@@ -23,7 +22,6 @@ import android.annotation.SuppressLint
 import android.graphics.Color
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
-import androidx.core.app.ActivityCompat
 import androidx.media.session.MediaButtonReceiver
 
 import android.support.v4.media.session.MediaSessionCompat
@@ -68,11 +66,30 @@ class MusicService : Service() {
     private val notificationHandler = Handler(Looper.getMainLooper())
     private val notificationGate = NotificationRefreshGate()
     private var pendingNotificationPlaying = false
+    private var lastNotificationArtwork: android.graphics.Bitmap? = null
+    private val notificationCardRebuilder by lazy {
+        MediaCardNotificationRebuilder(
+            enabled = MediaCardNotificationRebuilder.isAffected(Build.MANUFACTURER, Build.VERSION.SDK_INT),
+            removeCard = { stopForeground(STOP_FOREGROUND_REMOVE) },
+            restoreCard = {
+                if (!playerReleased) {
+                    startForeground(NOTIFICATION_ID, buildNotification(player.isPlaying))
+                    lastNotificationArtwork = mediaArtwork.artwork
+                    notificationGate.markPosted(SystemClock.uptimeMillis())
+                }
+            }
+        )
+    }
     private val notificationRefresh = Runnable {
-        if (!playerReleased && canPostNotifications()) {
-            getSystemService(NotificationManager::class.java)
-                .notify(NOTIFICATION_ID, buildNotification(pendingNotificationPlaying))
-            notificationGate.markPosted(SystemClock.uptimeMillis())
+        if (!playerReleased) {
+            val artworkChanged = lastNotificationArtwork != null &&
+                lastNotificationArtwork !== mediaArtwork.artwork
+            notificationCardRebuilder.publish(artworkChanged) {
+                getSystemService(NotificationManager::class.java)
+                    .notify(NOTIFICATION_ID, buildNotification(pendingNotificationPlaying))
+                lastNotificationArtwork = mediaArtwork.artwork
+                notificationGate.markPosted(SystemClock.uptimeMillis())
+            }
         }
     }
     private val sleepHandler = Handler(Looper.getMainLooper())
@@ -532,6 +549,7 @@ class MusicService : Service() {
     override fun onDestroy() {
         mediaArtwork.close()
         notificationHandler.removeCallbacks(notificationRefresh)
+        notificationCardRebuilder.close()
         savePlaybackState()
         session.isActive = false
         session.release()
@@ -703,24 +721,14 @@ class MusicService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun updateNotification(isPlaying: Boolean) {
-        if (!canPostNotifications()) return
+        // MediaSession notifications are exempt from POST_NOTIFICATIONS (Android 13+).
+        // Gating notify() here froze the initial no-song/no-artwork card after denial.
         // SystemUI drops excessive updates, including the final language/design change.
         // Coalesce to the latest state with a fixed next deadline, not a trailing debounce.
         pendingNotificationPlaying = isPlaying
         notificationHandler.removeCallbacks(notificationRefresh)
         notificationHandler.postDelayed(notificationRefresh,
             notificationGate.delayAt(SystemClock.uptimeMillis()))
-    }
-
-    private fun canPostNotifications(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            true
-        }
     }
 
     /** Swaps in a freshly scanned library, keeping the current track playing. */
