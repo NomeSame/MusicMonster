@@ -1,5 +1,8 @@
 package com.nomesame.musicmonster.ui.components
 
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.nomesame.musicmonster.R
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,10 +32,11 @@ fun PlaylistRow(
     textWarm: Color,
     textMuted: Color,
     onOpen: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
             .clickable { onOpen() },
@@ -47,7 +51,7 @@ fun PlaylistRow(
             overflow = TextOverflow.Ellipsis
         )
         Text(
-            text = "$songCount songs",
+            text = pluralStringResource(R.plurals.song_count, songCount, songCount),
             style = MaterialTheme.typography.labelSmall,
             color = textMuted,
             modifier = Modifier.padding(end = 6.dp)
@@ -55,7 +59,7 @@ fun PlaylistRow(
         IconButton(onClick = onDelete) {
             Icon(
                 imageVector = Icons.Default.Delete,
-                contentDescription = "Delete playlist",
+                contentDescription = stringResource(R.string.delete_playlist),
                 tint = textMuted
             )
         }
@@ -66,7 +70,7 @@ fun PlaylistRow(
 @Composable
 private fun PlaylistRowPreview() {
     PlaylistRow(
-        name = "Chill Vibes",
+        name = stringResource(R.string.preview_playlist),
         songCount = 12,
         textWarm = Color.White,
         textMuted = Color.Gray,

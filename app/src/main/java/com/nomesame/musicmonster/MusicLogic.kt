@@ -86,12 +86,24 @@ object MusicLogic {
         ids: List<String>,
         startId: String?,
         lookup: (String) -> T?,
+    ): Pair<List<T>, Int> = resolvePlaylist(ids, startId, null, lookup)
+
+    /** An explicit original index distinguishes repeated occurrences of the same song. */
+    fun <T> resolvePlaylist(
+        ids: List<String>,
+        startId: String?,
+        originalStartIndex: Int?,
+        lookup: (String) -> T?,
     ): Pair<List<T>, Int> {
-        val resolved = ids.mapNotNull { id -> lookup(id)?.let { id to it } }
-        val resolvedIds = resolved.map { it.first }
-        val items = resolved.map { it.second }
-        val startIndex = resolvedIds.indexOf(startId).takeIf { it >= 0 } ?: 0
-        return items to startIndex
+        val resolved = ids.mapIndexedNotNull { index, id ->
+            lookup(id)?.let { Triple(index, id, it) }
+        }
+        val byOccurrence = resolved.indexOfFirst {
+            it.first == originalStartIndex && it.second == startId
+        }
+        val byId = resolved.indexOfFirst { it.second == startId }
+        val startIndex = byOccurrence.takeIf { it >= 0 } ?: byId.takeIf { it >= 0 } ?: 0
+        return resolved.map { it.third } to startIndex
     }
 
     /** Formats a duration in ms as "M:SS" (or "H:MM:SS" past an hour). */

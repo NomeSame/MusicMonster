@@ -93,4 +93,26 @@ class PlaylistResolutionTest {
         assertEquals(listOf("Song A", "Song B", "Song A"), items)
         assertEquals(0, start)
     }
+
+    @Test fun explicitOccurrenceStartsAtSecondDuplicateAfterMissingSongsAreFiltered() {
+        val (items, start) = MusicLogic.resolvePlaylist(listOf("a", "gone", "b", "a"), "a", 3) { library[it] }
+        assertEquals(listOf("Song A", "Song B", "Song A"), items)
+        assertEquals(2, start)
+    }
+
+    @Test fun invalidOccurrenceFallsBackToFirstMatchingSong() {
+        for (index in listOf(-1, 1, 100, Int.MAX_VALUE)) {
+            val (_, start) = MusicLogic.resolvePlaylist(listOf("a", "b", "a"), "a", index) { library[it] }
+            assertEquals(0, start)
+        }
+    }
+
+    @Test fun occurrenceIndexNeverEscapesResolvedPlaylist() {
+        val ids = listOf("a", "gone", "a", "b", "a")
+        for (index in ids.indices) {
+            val (items, start) = MusicLogic.resolvePlaylist(ids, ids[index], index) { library[it] }
+            assertTrue(start in items.indices)
+            if (ids[index] != "gone") assertEquals(library[ids[index]], items[start])
+        }
+    }
 }

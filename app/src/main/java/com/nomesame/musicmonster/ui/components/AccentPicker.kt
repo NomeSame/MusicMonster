@@ -1,5 +1,7 @@
 package com.nomesame.musicmonster.ui.components
 
+import androidx.compose.ui.res.stringResource
+import com.nomesame.musicmonster.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -96,7 +98,7 @@ fun AccentPickerDialog(
     AlertDialog(
         containerColor = colors.panel,
         onDismissRequest = onDismiss,
-        title = { Text(text = "Accent color", color = colors.textPrimary) },
+        title = { Text(text = stringResource(R.string.accent_color), color = colors.textPrimary) },
         text = {
             Column {
                 // Live preview
@@ -137,7 +139,7 @@ fun AccentPickerDialog(
                 Spacer(Modifier.height(AppSpacing.md))
 
                 // Hue over a rainbow bar
-                Text(text = "Hue", color = colors.textMuted)
+                Text(text = stringResource(R.string.hue), color = colors.textMuted)
                 Box(contentAlignment = Alignment.Center) {
                     Box(
                         modifier = Modifier
@@ -159,7 +161,7 @@ fun AccentPickerDialog(
                     )
                 }
 
-                Text(text = "Saturation", color = colors.textMuted)
+                Text(text = stringResource(R.string.saturation), color = colors.textMuted)
                 Slider(
                     value = sat,
                     onValueChange = { sat = it },
@@ -171,7 +173,7 @@ fun AccentPickerDialog(
                     )
                 )
 
-                Text(text = "Brightness", color = colors.textMuted)
+                Text(text = stringResource(R.string.brightness), color = colors.textMuted)
                 Slider(
                     value = value,
                     onValueChange = { value = it },
@@ -198,7 +200,7 @@ fun AccentPickerDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Custom background",
+                        text = stringResource(R.string.custom_background),
                         color = colors.textPrimary,
                         modifier = Modifier.weight(1f)
                     )
@@ -221,7 +223,7 @@ fun AccentPickerDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = if (hasCustomBgImage) "Change image…" else "Choose your own image…",
+                            text = if (hasCustomBgImage) stringResource(R.string.change_image) else stringResource(R.string.choose_image),
                             color = selected
                         )
                     }
@@ -230,12 +232,12 @@ fun AccentPickerDialog(
                             onClick = onResetBackground,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(text = "Use default image", color = colors.textMuted)
+                            Text(text = stringResource(R.string.default_image), color = colors.textMuted)
                         }
                     }
 
                     Spacer(Modifier.height(AppSpacing.sm))
-                    Text(text = "Background dim", color = colors.textMuted)
+                    Text(text = stringResource(R.string.background_dim), color = colors.textMuted)
                     Slider(
                         value = bgScrim,
                         onValueChange = onBgScrimChange,
@@ -254,7 +256,7 @@ fun AccentPickerDialog(
                 )
                 Spacer(Modifier.height(AppSpacing.sm))
 
-                Text(text = "Player card opacity", color = colors.textMuted)
+                Text(text = stringResource(R.string.player_opacity), color = colors.textMuted)
                 Slider(
                     value = playerOpacity,
                     onValueChange = onPlayerOpacityChange,
@@ -269,7 +271,7 @@ fun AccentPickerDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text(text = "Done", color = selected)
+                Text(text = stringResource(R.string.done), color = selected)
             }
         }
     )

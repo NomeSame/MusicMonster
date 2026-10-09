@@ -1,5 +1,7 @@
 package com.nomesame.musicmonster.ui.components
 
+import androidx.compose.ui.res.stringResource
+import com.nomesame.musicmonster.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -45,7 +47,7 @@ fun TransportControls(
         IconButton(onClick = onPrevious) {
             Icon(
                 Icons.Default.SkipPrevious,
-                contentDescription = "Previous",
+                contentDescription = stringResource(R.string.previous),
                 tint = accent
             )
         }
@@ -53,7 +55,7 @@ fun TransportControls(
         IconButton(onClick = onPlayPause) {
             Icon(
                 if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                contentDescription = "Play/Pause",
+                contentDescription = stringResource(if (isPlaying) R.string.pause else R.string.play),
                 tint = accent
             )
         }
@@ -61,7 +63,7 @@ fun TransportControls(
         IconButton(onClick = onNext) {
             Icon(
                 Icons.Default.SkipNext,
-                contentDescription = "Next",
+                contentDescription = stringResource(R.string.next),
                 tint = accent
             )
         }
@@ -70,7 +72,7 @@ fun TransportControls(
             Icon(
                 imageVector = Icons.Default.Shuffle,
                 tint = if (isShuffled) shuffleActiveColor else shuffleInactiveColor,
-                contentDescription = "Shuffle"
+                contentDescription = stringResource(R.string.shuffle)
             )
         }
     }

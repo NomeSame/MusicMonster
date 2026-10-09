@@ -1,5 +1,7 @@
 package com.nomesame.musicmonster.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.nomesame.musicmonster.R
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import androidx.compose.foundation.layout.Arrangement
@@ -75,7 +77,7 @@ fun EqualizerPanel(
                 .padding(bottom = 8.dp)
         ) {
             Text(
-                text = "Equalizer",
+                text = stringResource(R.string.equalizer),
                 style = MaterialTheme.typography.titleMedium,
                 color = textWarm,
                 textAlign = TextAlign.Center,
@@ -101,7 +103,7 @@ fun EqualizerPanel(
 
         if (equalizer == null) {
             Text(
-                text = "Audio session not ready",
+                text = stringResource(R.string.audio_not_ready),
                 style = MaterialTheme.typography.bodyMedium,
                 color = textMuted
             )
@@ -109,7 +111,7 @@ fun EqualizerPanel(
         }
 
         Text(
-            text = "Presets: $presetLabel",
+            text = stringResource(R.string.presets_label, localizedPreset(presetLabel)),
             style = MaterialTheme.typography.labelMedium,
             color = textMuted,
             modifier = Modifier.padding(bottom = 8.dp)
@@ -128,7 +130,7 @@ fun EqualizerPanel(
                         modifier = Modifier.weight(1f),
                         onClick = { onPresetSelected(label, buildPresetLevels(label, equalizer)) }
                     ) {
-                        Text(text = label)
+                        Text(text = localizedPreset(label))
                     }
                 }
             }
@@ -156,7 +158,7 @@ fun EqualizerPanel(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = "Bass Boost",
+                text = stringResource(R.string.bass_boost),
                 style = MaterialTheme.typography.titleSmall,
                 color = textWarm
             )
@@ -233,7 +235,7 @@ fun EqualizerPanel(
             val level = eqBandLevels.getOrNull(bandIndex) ?: 0
 
             Text(
-                text = "${centerHz} Hz",
+                text = stringResource(R.string.frequency_hz, centerHz),
                 style = MaterialTheme.typography.labelMedium,
                 color = textWarm,
                 modifier = Modifier.padding(top = 6.dp)
@@ -280,3 +282,12 @@ private fun EqualizerPanelPreview() {
         onPresetSelected = { _, _ -> }
     )
 }
+
+@Composable
+private fun localizedPreset(key: String): String = stringResource(when (key) {
+    "Metal" -> R.string.preset_metal
+    "Rock" -> R.string.preset_rock
+    "Classic" -> R.string.preset_classic
+    "Pop" -> R.string.preset_pop
+    else -> R.string.preset_flat
+})

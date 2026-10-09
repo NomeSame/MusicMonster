@@ -1,5 +1,7 @@
 package com.nomesame.musicmonster.ui.components
 
+import androidx.compose.ui.res.stringResource
+import com.nomesame.musicmonster.R
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,10 +30,11 @@ fun PlaylistSongRow(
     textWarm: Color,
     textMuted: Color,
     onPlay: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp)
             .clickable { onPlay() },
@@ -48,7 +51,7 @@ fun PlaylistSongRow(
         IconButton(onClick = onRemove) {
             Icon(
                 imageVector = Icons.Default.Delete,
-                contentDescription = "Remove",
+                contentDescription = stringResource(R.string.remove_song),
                 tint = textMuted
             )
         }
@@ -59,7 +62,7 @@ fun PlaylistSongRow(
 @Composable
 private fun PlaylistSongRowPreview() {
     PlaylistSongRow(
-        title = "Example Song",
+        title = stringResource(R.string.preview_song),
         textWarm = Color.White,
         textMuted = Color.Gray,
         onPlay = {},

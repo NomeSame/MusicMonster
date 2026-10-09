@@ -111,6 +111,7 @@ class MusicService : Service() {
         const val EXTRA_FADE_MS = "extra_fade_ms"
         const val EXTRA_PLAYLIST_IDS = "extra_playlist_ids"
         const val EXTRA_PLAYLIST_START_ID = "extra_playlist_start_id"
+        const val EXTRA_PLAYLIST_START_INDEX = "extra_playlist_start_index"
         /**
          * Holds the session token once the service has created its MediaSession.
          * Activities can read this to construct a {@link MediaControllerCompat}.
@@ -133,10 +134,10 @@ class MusicService : Service() {
             // builds) for the whole listening session.
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Music Monster",
+                getString(R.string.app_name),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Controls for Music Monster playback"
+                description = getString(R.string.playback_channel_description)
                 setShowBadge(false)
             }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
@@ -392,7 +393,7 @@ class MusicService : Service() {
 
     private fun updateSessionMetadata() {
         val idx = player.currentMediaItemIndex
-        val currentTitle = if (idx in titles.indices) titles[idx] else "No song selected"
+        val currentTitle = if (idx in titles.indices) titles[idx] else getString(R.string.no_song_selected)
         val currentId = if (idx in titles.indices) player.getMediaItemAt(idx).mediaId else null
         val duration = player.duration.takeIf { it > 0L } ?: 0L
 
@@ -470,7 +471,9 @@ class MusicService : Service() {
         if (intent?.action == ACTION_PLAY_PLAYLIST) {
             val ids = intent.getStringArrayListExtra(EXTRA_PLAYLIST_IDS) ?: emptyList()
             val startId = intent.getStringExtra(EXTRA_PLAYLIST_START_ID)
-            setPlaylistAndPlay(ids, startId)
+            val startIndex = if (intent.hasExtra(EXTRA_PLAYLIST_START_INDEX))
+                intent.getIntExtra(EXTRA_PLAYLIST_START_INDEX, -1) else null
+            setPlaylistAndPlay(ids, startId, startIndex)
             return START_STICKY
         }
 
@@ -574,9 +577,9 @@ class MusicService : Service() {
             )
 
         val idx = player.currentMediaItemIndex
-        val currentTitle = if (idx in titles.indices) titles[idx] else "No song selected"
+        val currentTitle = if (idx in titles.indices) titles[idx] else getString(R.string.no_song_selected)
         val shuffleOn = player.shuffleModeEnabled
-        val shuffleLabel = if (shuffleOn) "Shuffle On" else "Shuffle Off"
+        val shuffleLabel = if (shuffleOn) getString(R.string.shuffle_on) else getString(R.string.shuffle_off)
 
         val duration = player.duration.takeIf { it > 0L } ?: 0L
         val position = player.currentPosition.coerceAtLeast(0L)
@@ -604,9 +607,9 @@ class MusicService : Service() {
             .setOngoing(isPlaying)
             .setColor(accentInt)
             .setColorized(true)
-            .addAction(android.R.drawable.ic_media_previous, "Previous", pendingIntentPrev)
-            .addAction(playPauseIcon, if (isPlaying) "Pause" else "Play", pendingIntentPlayPause)
-            .addAction(android.R.drawable.ic_media_next, "Next", pendingIntentNext)
+            .addAction(android.R.drawable.ic_media_previous, getString(R.string.previous), pendingIntentPrev)
+            .addAction(playPauseIcon, if (isPlaying) getString(R.string.pause) else getString(R.string.play), pendingIntentPlayPause)
+            .addAction(android.R.drawable.ic_media_next, getString(R.string.next), pendingIntentNext)
             .setStyle(
                 androidx.media.app.NotificationCompat.MediaStyle()
                     .setMediaSession(session.sessionToken)
@@ -630,9 +633,9 @@ class MusicService : Service() {
             .setOngoing(isPlaying)
             .setColor(accentInt)
             .setColorized(true)
-            .addAction(android.R.drawable.ic_media_previous, "Previous", pendingIntentPrev)
-            .addAction(playPauseIcon, if (isPlaying) "Pause" else "Play", pendingIntentPlayPause)
-            .addAction(android.R.drawable.ic_media_next, "Next", pendingIntentNext)
+            .addAction(android.R.drawable.ic_media_previous, getString(R.string.previous), pendingIntentPrev)
+            .addAction(playPauseIcon, if (isPlaying) getString(R.string.pause) else getString(R.string.play), pendingIntentPlayPause)
+            .addAction(android.R.drawable.ic_media_next, getString(R.string.next), pendingIntentNext)
             .addAction(R.drawable.ic_shuffle, shuffleLabel, pendingIntentShuffle)
             .setCustomContentView(contentView)
             .setCustomBigContentView(contentView)
@@ -690,12 +693,12 @@ class MusicService : Service() {
         }
     }
 
-    private fun setPlaylistAndPlay(ids: List<String>, startId: String?) {
+    private fun setPlaylistAndPlay(ids: List<String>, startId: String?, originalStartIndex: Int? = null) {
         if (ids.isEmpty()) return
         // Resolve items and titles together, and take the start index from the
         // *resolved* list — see MusicLogic.resolvePlaylist for why doing this
         // per-list was a crash waiting for a deleted song.
-        val (resolved, startIndex) = MusicLogic.resolvePlaylist(ids, startId) { id ->
+        val (resolved, startIndex) = MusicLogic.resolvePlaylist(ids, startId, originalStartIndex) { id ->
             libraryItems[id]?.let { item -> item to (libraryTitles[id] ?: item.mediaId) }
         }
         if (resolved.isEmpty()) return

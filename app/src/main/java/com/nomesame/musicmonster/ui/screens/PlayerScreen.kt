@@ -1,5 +1,14 @@
 package com.nomesame.musicmonster.ui.screens
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import com.nomesame.musicmonster.R
+import com.nomesame.musicmonster.ui.components.SongSelectionBar
+import com.nomesame.musicmonster.ui.components.SelectPlaylistDialog
+import com.nomesame.musicmonster.ui.components.CreatePlaylistDialog
 import android.support.v4.media.session.PlaybackStateCompat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -36,8 +45,6 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -63,7 +70,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nomesame.musicmonster.MainViewModel
 import com.nomesame.musicmonster.MusicLogic
-import com.nomesame.musicmonster.Song
 import com.nomesame.musicmonster.ui.components.AccentPickerDialog
 import com.nomesame.musicmonster.ui.components.AppBackground
 import com.nomesame.musicmonster.ui.components.FastScroller
@@ -86,7 +92,7 @@ fun PlayerScreen(
     val equalizerController = viewModel.equalizerController
     val playlists = viewModel.playlists
     val songs = viewModel.songs.collectAsState().value
-    val currentTitle = playbackConnection.nowPlayingTitle.collectAsState().value ?: "No song selected"
+    val currentTitle = playbackConnection.nowPlayingTitle.collectAsState().value ?: stringResource(R.string.no_song_selected)
     val currentId = playbackConnection.nowPlayingId.collectAsState().value
     val playing = playbackConnection.isPlaying.collectAsState().value
     val shuffled = playbackConnection.isShuffled.collectAsState().value
@@ -96,13 +102,17 @@ fun PlayerScreen(
     val durationMs = playbackConnection.duration.collectAsState().value
     val positionMs = playbackConnection.position.collectAsState().value
     val effectivePosition = if (isScrubbing) scrubPositionMs else positionMs
-    // Store only the target song's id (a String) so the "Add to Playlist"
-    // dialog survives rotation and process death, matching newPlaylistName below.
-    // The full Song is re-resolved from the loaded `songs` list when needed.
-    var playlistTargetSongId by rememberSaveable { mutableStateOf<String?>(null) }
+    val selection by viewModel.songSelection.state.collectAsState()
+    val targetPlaylist = playlists.firstOrNull { it.id == selection.targetPlaylistId }
+    val targetEntries = targetPlaylist?.songIds?.toList().orEmpty()
+    val existingCounts = remember(targetEntries) { targetEntries.groupingBy { it }.eachCount() }
+    var selectionDialog by rememberSaveable { mutableStateOf<String?>(null) }
     var newPlaylistName by rememberSaveable { mutableStateOf("") }
-    val playlistTargetSong = songs.firstOrNull { it.id == playlistTargetSongId }
-    val showPlaylistDialog = playlistTargetSong != null
+    BackHandler(enabled = selection.active) {
+        selectionDialog = null
+        if (selection.targetPlaylistId != null) expanded = true
+        viewModel.songSelection.finish()
+    }
     var showAccentPicker by rememberSaveable { mutableStateOf(false) }
     val swipePagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
     val listState = rememberLazyListState()
@@ -180,7 +190,7 @@ fun PlayerScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Music Monster",
+                    text = stringResource(R.string.app_name),
                     style = MaterialTheme.typography.headlineMedium,
                     color = textWarm,
                     modifier = Modifier.weight(1f)
@@ -188,29 +198,50 @@ fun PlayerScreen(
                 IconButton(onClick = { showAccentPicker = true }) {
                     Icon(
                         imageVector = Icons.Default.Palette,
-                        contentDescription = "Accent color",
+                        contentDescription = stringResource(R.string.accent_color),
                         tint = iconGlow
                     )
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Folder,
-                    contentDescription = "Open folder",
-                    tint = iconGlow,
-                    modifier = Modifier.clickable { onPickFolder() }.padding(end = 8.dp)
-                )
-                Text(
-                    text = "Music",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = textWarm,
-                    modifier = Modifier.clickable { onPickFolder() }
-                )
+            AnimatedContent(
+                targetState = selection.active,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).animateContentSize(),
+                label = "librarySelection"
+            ) { selecting ->
+                if (selecting) {
+                    SongSelectionBar(
+                        count = selection.ids.size,
+                        allSelected = selection.allSelected(songs.map { it.id }),
+                        hasPlaylists = if (selection.targetPlaylistId != null) targetPlaylist != null else playlists.isNotEmpty(),
+                        onAdd = {
+                            if (targetPlaylist != null) {
+                                if (viewModel.addSelectionToPlaylist(targetPlaylist)) expanded = true
+                            } else selectionDialog = "add"
+                        },
+                        onCreate = { newPlaylistName = ""; selectionDialog = "create" },
+                        onToggleAll = { viewModel.songSelection.toggleAll(songs.map { it.id }) },
+                        onClose = {
+                            selectionDialog = null
+                            if (selection.targetPlaylistId != null) expanded = true
+                            viewModel.songSelection.finish()
+                        },
+                        targetPlaylistName = targetPlaylist?.name
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = onPickFolder, modifier = Modifier.testTag("folder_picker")) {
+                            Icon(Icons.Default.Folder, stringResource(R.string.open_folder), tint = iconGlow)
+                        }
+                        Text(stringResource(R.string.music), color = textWarm,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.clickable(onClick = onPickFolder))
+                    }
+                }
             }
 
             Box(
@@ -236,7 +267,7 @@ fun PlayerScreen(
                         // Full height (no top padding) so the empty area above the
                         // titles is still part of the pager and reacts to swipes.
                         // The shared 80dp title offset lives in each page's content.
-                        modifier = Modifier.weight(1f).fillMaxWidth()
+                        modifier = Modifier.weight(1f).fillMaxWidth().testTag("panel_pager")
                     ) { page ->
                         when (page) {
                             0 -> Box(modifier = Modifier.fillMaxSize().padding(top = 80.dp)) {
@@ -246,15 +277,15 @@ fun PlayerScreen(
                                 textWarm = textWarm,
                                 textMuted = textMuted,
                                 accent = iconGlow,
-                                onPlayPlaylist = { playlist, startId ->
-                                    viewModel.playPlaylist(playlist, startId)
+                                onPlayPlaylist = { playlist, startId, startIndex ->
+                                    viewModel.playPlaylist(playlist, startId, startIndex)
                                 },
                                 onSavePlaylists = { viewModel.savePlaylists() },
                                 onCreatePlaylist = { name, initial ->
                                     viewModel.createPlaylist(name, initial)
                                 },
-                                onAddSongToPlaylist = { playlist, song ->
-                                    viewModel.addSongToPlaylist(playlist, song)
+                                onAddSongs = { playlist ->
+                                    if (viewModel.startPlaylistSelection(playlist)) expanded = false
                                 },
                                 onExport = onExport,
                                 onImport = onImport
@@ -344,7 +375,7 @@ fun PlayerScreen(
                     if (songs.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text(
-                                text = "No songs found on this device",
+                                text = stringResource(R.string.no_songs_found),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = textMuted
                             )
@@ -355,7 +386,7 @@ fun PlayerScreen(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(bottom = 16.dp)
                         ) {
-                            itemsIndexed(songs) { index, song ->
+                            itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
                                 SongRow(
                                     title = song.title,
                                     durationLabel = MusicLogic.formatTime(song.durationMs),
@@ -363,8 +394,18 @@ fun PlayerScreen(
                                     textWarm = textWarm,
                                     textMuted = textMuted,
                                     accent = iconGlow,
-                                    onClick = { playbackConnection.playFromMediaId(song.id) },
-                                    onLongClick = { playlistTargetSongId = song.id }
+                                    onClick = {
+                                        if (selection.active) viewModel.songSelection.toggle(song.id)
+                                        else playbackConnection.playFromMediaId(song.id)
+                                    },
+                                    onLongClick = {
+                                        if (selection.active) viewModel.songSelection.toggle(song.id)
+                                        else viewModel.songSelection.start(song.id)
+                                    },
+                                    selectionMode = selection.active,
+                                    isSelected = song.id in selection.ids,
+                                    existingCount = existingCounts[song.id] ?: 0,
+                                    modifier = Modifier.testTag("song_row_" + song.id)
                                 )
                                 if (index < songs.lastIndex) {
                                     Divider(color = dividerWarm)
@@ -408,16 +449,17 @@ fun PlayerScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = if (playing) "Playing" else "Paused",
+                                text = if (playing) stringResource(R.string.playing) else stringResource(R.string.paused),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = textMuted,
                                 modifier = Modifier.padding(top = 2.dp)
                             )
                         }
-                        IconButton(onClick = { expanded = !expanded }) {
+                        IconButton(onClick = { expanded = !expanded }, enabled = !selection.active,
+                            modifier = Modifier.testTag("player_expand")) {
                             Icon(
                                 imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                contentDescription = if (expanded) "Show list" else "Show equalizer / timer / playlists",
+                                contentDescription = if (expanded) stringResource(R.string.show_list) else stringResource(R.string.show_panels),
                                 tint = iconGlow
                             )
                         }
@@ -466,7 +508,7 @@ fun PlayerScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Next up:",
+                                    text = stringResource(R.string.next_up),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = textMuted,
                                     modifier = Modifier.padding(end = 6.dp)
@@ -513,80 +555,26 @@ fun PlayerScreen(
                 }
             }
 
-            if (showPlaylistDialog) {
-                AlertDialog(
-                    onDismissRequest = {
-                        playlistTargetSongId = null
-                        newPlaylistName = ""
+            if (selection.active && selectionDialog == "add") {
+                SelectPlaylistDialog(
+                    playlists = playlists,
+                    onSelect = { playlist ->
+                        if (viewModel.addSelectionToPlaylist(playlist)) selectionDialog = null
                     },
-                    title = {
-                        Text(
-                            text = "Add to Playlist",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = textWarm
-                        )
-                    },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (playlists.isEmpty()) {
-                                Text(
-                                    text = "No playlists yet.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = textMuted
-                                )
-                            } else {
-                                playlists.forEach { playlist ->
-                                    Button(
-                                        onClick = {
-                                            val song = playlistTargetSong
-                                            if (song != null) {
-                                                viewModel.addSongToPlaylist(playlist, song)
-                                            }
-                                            playlistTargetSongId = null
-                                            newPlaylistName = ""
-                                        }
-                                    ) {
-                                        Text(text = playlist.name)
-                                    }
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            OutlinedTextField(
-                                value = newPlaylistName,
-                                onValueChange = { newPlaylistName = it.take(24) },
-                                label = { Text("New playlist", color = textMuted) },
-                                textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = iconGlow,
-                                    focusedLabelColor = iconGlow,
-                                    unfocusedBorderColor = textMuted,
-                                    unfocusedLabelColor = textMuted,
-                                    cursorColor = iconGlow
-                                ),
-                                singleLine = true
-                            )
-                        }
-                    },
-                    confirmButton = {
-                        Button(onClick = {
-                            val name = newPlaylistName.trim()
-                            if (name.isNotEmpty()) {
-                                viewModel.createPlaylist(name, playlistTargetSong)
-                            }
-                            playlistTargetSongId = null
+                    onDismiss = { selectionDialog = null }
+                )
+            }
+            if (selection.active && selectionDialog == "create") {
+                CreatePlaylistDialog(
+                    name = newPlaylistName,
+                    onNameChange = { newPlaylistName = it },
+                    onConfirm = {
+                        if (viewModel.createPlaylistFromSelection(newPlaylistName)) {
+                            selectionDialog = null
                             newPlaylistName = ""
-                        }) {
-                            Text("Create")
                         }
                     },
-                    dismissButton = {
-                        Button(onClick = {
-                            playlistTargetSongId = null
-                            newPlaylistName = ""
-                        }) {
-                            Text("Close")
-                        }
-                    }
+                    onDismiss = { selectionDialog = null }
                 )
             }
 
@@ -612,10 +600,10 @@ fun PlayerScreen(
                 AlertDialog(
                     onDismissRequest = { viewModel.dismissPendingPalette() },
                     containerColor = panelColor,
-                    title = { Text(text = "Match theme to image?", color = textWarm) },
+                    title = { Text(text = stringResource(R.string.match_theme), color = textWarm) },
                     text = {
                         Text(
-                            text = "Load an accent color that fits your new background?",
+                            text = stringResource(R.string.match_theme_description),
                             color = textMuted
                         )
                     },
@@ -629,13 +617,13 @@ fun PlayerScreen(
                             )
                             Spacer(Modifier.size(8.dp))
                             Button(onClick = { viewModel.applyPendingPalette() }) {
-                                Text("Use it")
+                                Text(stringResource(R.string.use_color))
                             }
                         }
                     },
                     dismissButton = {
                         Button(onClick = { viewModel.dismissPendingPalette() }) {
-                            Text("Keep current")
+                            Text(stringResource(R.string.keep_color))
                         }
                     }
                 )

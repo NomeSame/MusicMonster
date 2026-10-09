@@ -1,6 +1,7 @@
 package com.nomesame.musicmonster.ui.screens
 
-import androidx.compose.foundation.clickable
+import androidx.compose.ui.res.stringResource
+import com.nomesame.musicmonster.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -9,7 +10,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,9 +34,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nomesame.musicmonster.Song
 import com.nomesame.musicmonster.model.Playlist
@@ -50,15 +50,14 @@ fun PlaylistScreen(
     textWarm: Color,
     textMuted: Color,
     accent: Color,
-    onPlayPlaylist: (Playlist, String) -> Unit,
+    onPlayPlaylist: (Playlist, String, Int) -> Unit,
     onSavePlaylists: () -> Unit,
     onCreatePlaylist: (String, Song?) -> Playlist,
-    onAddSongToPlaylist: (Playlist, Song) -> Unit,
+    onAddSongs: (Playlist) -> Unit,
     onExport: () -> Unit,
     onImport: () -> Unit
 ) {
     var activePlaylistId by rememberSaveable { mutableStateOf<String?>(null) }
-    var showAddSongsDialog by rememberSaveable { mutableStateOf(false) }
     var showCreatePlaylistDialog by rememberSaveable { mutableStateOf(false) }
     var createPlaylistName by rememberSaveable { mutableStateOf("") }
     val activePlaylist = playlists.firstOrNull { it.id == activePlaylistId }
@@ -76,7 +75,7 @@ fun PlaylistScreen(
                     IconButton(onClick = { activePlaylistId = null }) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = stringResource(R.string.back),
                             tint = textWarm
                         )
                     }
@@ -88,34 +87,37 @@ fun PlaylistScreen(
                 }
 
                 Button(
-                    onClick = { showAddSongsDialog = true },
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    onClick = { onAddSongs(activePlaylist) },
+                    modifier = Modifier.padding(bottom = 8.dp).testTag("playlist_add_songs")
                 ) {
-                    Text("Add songs")
+                    Text(stringResource(R.string.add_songs))
                 }
             }
 
-            val playlistSongs = activePlaylist.songIds.mapNotNull { id ->
-                songs.firstOrNull { it.id == id }
+            val songsById = songs.associateBy { it.id }
+            val playlistSongs = activePlaylist.songIds.mapIndexedNotNull { index, id ->
+                songsById[id]?.let { index to it }
             }
 
             if (playlistSongs.isEmpty()) {
                 item {
                     Text(
-                        text = "No songs in this playlist",
+                        text = stringResource(R.string.playlist_empty),
                         style = MaterialTheme.typography.bodyMedium,
                         color = textMuted
                     )
                 }
             } else {
-                itemsIndexed(playlistSongs) { _, song ->
+                itemsIndexed(playlistSongs, key = { _, entry -> entry.first }) { _, entry ->
+                    val (playlistIndex, song) = entry
                     PlaylistSongRow(
+                        modifier = Modifier.testTag("playlist_song_" + playlistIndex),
                         title = song.title,
                         textWarm = textWarm,
                         textMuted = textMuted,
-                        onPlay = { onPlayPlaylist(activePlaylist, song.id) },
+                        onPlay = { onPlayPlaylist(activePlaylist, song.id, playlistIndex) },
                         onRemove = {
-                            activePlaylist.songIds.remove(song.id)
+                            activePlaylist.songIds.removeAt(playlistIndex)
                             onSavePlaylists()
                         }
                     )
@@ -126,7 +128,7 @@ fun PlaylistScreen(
         } else {
             item {
                 Text(
-                    text = "Playlists",
+                    text = stringResource(R.string.playlists),
                     style = MaterialTheme.typography.titleMedium,
                     color = textWarm,
                     textAlign = TextAlign.Center,
@@ -137,17 +139,17 @@ fun PlaylistScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(onClick = onExport, modifier = Modifier.weight(1f)) {
-                        Text("Export")
+                        Text(stringResource(R.string.export))
                     }
                     Button(onClick = onImport, modifier = Modifier.weight(1f)) {
-                        Text("Import")
+                        Text(stringResource(R.string.import_playlists))
                     }
                 }
                 Button(
                     onClick = { showCreatePlaylistDialog = true },
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
                 ) {
-                    Text("New playlist")
+                    Text(stringResource(R.string.new_playlist))
                 }
             }
 
@@ -162,7 +164,7 @@ fun PlaylistScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Long-press a song to create a playlist",
+                            text = stringResource(R.string.playlist_hint),
                             style = MaterialTheme.typography.bodyMedium,
                             color = textMuted
                         )
@@ -171,6 +173,7 @@ fun PlaylistScreen(
             } else {
                 itemsIndexed(playlists) { _, playlist ->
                     PlaylistRow(
+                        modifier = Modifier.testTag("playlist_row_" + playlist.id),
                         name = playlist.name,
                         songCount = playlist.songIds.size,
                         textWarm = textWarm,
@@ -187,64 +190,12 @@ fun PlaylistScreen(
         }
     }
 
-    if (showAddSongsDialog && activePlaylist != null) {
-        val availableSongs = songs.filterNot { activePlaylist.songIds.contains(it.id) }
-        AlertDialog(
-            onDismissRequest = { showAddSongsDialog = false },
-            title = {
-                Text(
-                    text = "Add to ${activePlaylist.name}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = textWarm
-                )
-            },
-            text = {
-                if (availableSongs.isEmpty()) {
-                    Text(
-                        text = "All songs already in playlist.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = textMuted
-                    )
-                } else {
-                    LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
-                        itemsIndexed(availableSongs) { _, song ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 6.dp)
-                                    .clickable {
-                                        onAddSongToPlaylist(activePlaylist, song)
-                                        showAddSongsDialog = false
-                                    },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = song.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = textWarm,
-                                    modifier = Modifier.weight(1f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(onClick = { showAddSongsDialog = false }) {
-                    Text("Close")
-                }
-            }
-        )
-    }
-
     if (showCreatePlaylistDialog) {
         AlertDialog(
             onDismissRequest = { showCreatePlaylistDialog = false },
             title = {
                 Text(
-                    text = "Create Playlist",
+                    text = stringResource(R.string.create_playlist),
                     style = MaterialTheme.typography.titleMedium,
                     color = textWarm
                 )
@@ -253,7 +204,7 @@ fun PlaylistScreen(
                 OutlinedTextField(
                     value = createPlaylistName,
                     onValueChange = { createPlaylistName = it.take(24) },
-                    label = { Text("Name", color = textMuted) },
+                    label = { Text(stringResource(R.string.playlist_name), color = textMuted) },
                     textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = accent,
@@ -271,12 +222,12 @@ fun PlaylistScreen(
                     if (name.isNotEmpty()) {
                         val created = onCreatePlaylist(name, null)
                         activePlaylistId = created.id
-                        showAddSongsDialog = true
+                        onAddSongs(created)
                     }
                     createPlaylistName = ""
                     showCreatePlaylistDialog = false
                 }) {
-                    Text("Create")
+                    Text(stringResource(R.string.create))
                 }
             },
             dismissButton = {
@@ -284,7 +235,7 @@ fun PlaylistScreen(
                     createPlaylistName = ""
                     showCreatePlaylistDialog = false
                 }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.cancel))
                 }
             }
         )

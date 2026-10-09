@@ -120,8 +120,8 @@ class PlaylistRepositoryTest {
         assertNotNull(next)
         assertEquals(2, target.size)
         assertEquals("New", target[1].name)
-        // duplicate song ids are de-duplicated on import
-        assertEquals(listOf("n1", "n2"), target[1].songIds.toList())
+        // Playlist entries are ordered occurrences: repetitions must survive import.
+        assertEquals(listOf("n1", "n1", "n2"), target[1].songIds.toList())
         // blank id -> allocated from currentSequence
         assertEquals("playlist_1", target[1].id)
         assertEquals(2, next!!)

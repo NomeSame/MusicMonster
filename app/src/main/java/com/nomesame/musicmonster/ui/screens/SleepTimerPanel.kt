@@ -1,5 +1,7 @@
 package com.nomesame.musicmonster.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.nomesame.musicmonster.R
 import android.os.SystemClock
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -67,7 +69,7 @@ fun SleepTimerPanel(
 
     Column {
         Text(
-            text = "Sleep Timer",
+            text = stringResource(R.string.sleep_timer),
             style = MaterialTheme.typography.titleMedium,
             color = textWarm,
             textAlign = TextAlign.Center,
@@ -86,7 +88,7 @@ fun SleepTimerPanel(
                     timerRunning = true
                     onStartTimer(totalMs, 10_000L)
                 }) {
-                    Text("${minutes}m")
+                    Text(stringResource(R.string.minutes_short, minutes))
                 }
             }
         }
@@ -105,7 +107,7 @@ fun SleepTimerPanel(
             OutlinedTextField(
                 value = hoursText,
                 onValueChange = { hoursText = it.filter { c -> c in '0'..'9' }.take(2) },
-                label = { Text("Hours", color = textMuted) },
+                label = { Text(stringResource(R.string.hours), color = textMuted) },
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
                 colors = fieldColors,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -115,7 +117,7 @@ fun SleepTimerPanel(
             OutlinedTextField(
                 value = minutesText,
                 onValueChange = { minutesText = it.filter { c -> c in '0'..'9' }.take(2) },
-                label = { Text("Minutes", color = textMuted) },
+                label = { Text(stringResource(R.string.minutes), color = textMuted) },
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
                 colors = fieldColors,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -125,7 +127,7 @@ fun SleepTimerPanel(
             OutlinedTextField(
                 value = secondsText,
                 onValueChange = { secondsText = it.filter { c -> c in '0'..'9' }.take(2) },
-                label = { Text("Seconds", color = textMuted) },
+                label = { Text(stringResource(R.string.seconds), color = textMuted) },
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = textWarm),
                 colors = fieldColors,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -151,7 +153,7 @@ fun SleepTimerPanel(
                     onStartTimer(totalMs, 10_000L)
                 }
             }) {
-                Text("Start")
+                Text(stringResource(R.string.start))
             }
             Button(onClick = {
                 onCancelTimer()
@@ -159,14 +161,14 @@ fun SleepTimerPanel(
                 sleepTargetElapsedMs = null
                 sleepRemainingMs = sleepTotalMs
             }) {
-                Text("Cancel")
+                Text(stringResource(R.string.cancel))
             }
         }
         Spacer(modifier = Modifier.height(6.dp))
         if (sleepTotalMs > 0L) {
             val remainingLabel = formatRemaining(sleepRemainingMs)
             Text(
-                text = if (timerRunning) "Time left: $remainingLabel" else "Set time: $remainingLabel",
+                text = if (timerRunning) stringResource(R.string.time_left, remainingLabel) else stringResource(R.string.set_time, remainingLabel),
                 style = MaterialTheme.typography.labelMedium,
                 color = textMuted
             )

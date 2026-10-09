@@ -24,9 +24,24 @@ internal object PlaylistCodec {
                         val value = songs?.opt(s) as? String ?: continue
                         if (value.isNotBlank()) add(value)
                     }
-                }.distinct()
+                }
                 add(Record(id, name, ids))
             }
+        }
+    }
+
+    /**
+     * Append only occurrence-count deficits on merge, so importing the same
+     * playlist again is idempotent without collapsing intentional repetitions.
+     */
+    fun missingOccurrences(existing: Collection<String>, incoming: List<String>): List<String> {
+        val remaining = existing.groupingBy { it }.eachCount().toMutableMap()
+        return incoming.filter { id ->
+            val count = remaining[id] ?: 0
+            if (count > 0) {
+                remaining[id] = count - 1
+                false
+            } else true
         }
     }
 

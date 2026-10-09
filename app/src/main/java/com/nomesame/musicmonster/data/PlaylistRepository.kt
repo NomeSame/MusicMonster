@@ -35,8 +35,7 @@ class PlaylistRepository(
             val playlist = parsed.getOrPut(record.id) {
                 Playlist(record.id, record.name, mutableStateListOf())
             }
-            val present = playlist.songIds.toHashSet()
-            record.songs.forEach { if (present.add(it)) playlist.songIds.add(it) }
+            playlist.songIds.addAll(PlaylistCodec.missingOccurrences(playlist.songIds, record.songs))
         }
         return Loaded(parsed.values.toList(), PlaylistCodec.nextSequence(parsed.keys))
     }
@@ -112,8 +111,7 @@ class PlaylistRepository(
             val existing = target.firstOrNull { record.id.isNotBlank() && it.id == record.id }
                 ?: target.firstOrNull { it.name.equals(record.name, true) }
             if (existing != null) {
-                val present = existing.songIds.toHashSet()
-                record.songs.forEach { if (present.add(it)) existing.songIds.add(it) }
+                existing.songIds.addAll(PlaylistCodec.missingOccurrences(existing.songIds, record.songs))
             } else {
                 val id = record.id.takeIf { it.isNotBlank() } ?: run {
                     val available = PlaylistCodec.nextSequence(reserved, sequence)

@@ -9,6 +9,7 @@ import androidx.annotation.OptIn
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
@@ -39,7 +40,9 @@ import kotlinx.coroutines.withContext
  * changes and keeps the Activity thin.
  */
 @OptIn(UnstableApi::class)
-class MainViewModel(application: Application) : AndroidViewModel(application) {
+class MainViewModel(application: Application, savedState: SavedStateHandle = SavedStateHandle()) : AndroidViewModel(application) {
+
+    val songSelection = SongSelectionController(savedState)
 
     private val app: Application get() = getApplication()
     private val prefs = application.getSharedPreferences("music_prefs", Context.MODE_PRIVATE)
@@ -191,8 +194,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun loadSongs() {
         viewModelScope.launch {
-            _songs.value = withContext(Dispatchers.IO) { songRepository.load() }
+            applyLibrarySongs(withContext(Dispatchers.IO) { songRepository.load() })
         }
+    }
+
+    internal fun applyLibrarySongs(loaded: List<Song>) {
+        _songs.value = loaded
+        songSelection.retain(loaded.map { it.id })
     }
 
     fun loadPlaylists() {
@@ -238,7 +246,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun nextUpSong(songs: List<Song>, currentId: String?): Song? = MusicLogic.nextUpSong(songs, currentId)
 
-    fun createPlaylist(name: String, initialSong: Song?): Playlist {
+    fun createPlaylist(name: String, initialSong: Song?): Playlist =
+        createPlaylistWithSongs(name, listOfNotNull(initialSong?.id))
+
+    private fun createPlaylistWithSongs(name: String, ids: List<String>): Playlist {
         val available = PlaylistCodec.nextSequence(playlists.map { it.id }, playlistSequence)
         playlistSequence = if (available == Int.MAX_VALUE) 0 else available + 1
         val playlist = Playlist(
@@ -246,19 +257,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             name = name.trim(),
             songIds = mutableStateListOf()
         )
-        if (initialSong != null) {
-            playlist.songIds.add(initialSong.id)
-        }
+        playlist.songIds.addAll(ids.distinct())
         playlists.add(playlist)
         savePlaylists()
         return playlist
     }
 
+    fun createPlaylistFromSelection(name: String): Boolean {
+        val ids = songSelection.state.value.orderedIds(songs.value.map { it.id })
+        if (name.isBlank() || ids.isEmpty()) return false
+        createPlaylistWithSongs(name, ids)
+        songSelection.finish()
+        return true
+    }
+
+    fun addSelectionToPlaylist(playlist: Playlist): Boolean {
+        if (playlists.none { it === playlist }) return false
+        val selection = songSelection.state.value
+        if (!selection.active || (selection.targetPlaylistId != null && selection.targetPlaylistId != playlist.id)) return false
+        val ids = songSelection.state.value.orderedIds(songs.value.map { it.id })
+        if (ids.isEmpty()) return false
+        playlist.songIds.addAll(ids)
+        savePlaylists()
+        songSelection.finish()
+        return true
+    }
+
+    fun startPlaylistSelection(playlist: Playlist): Boolean {
+        if (playlists.none { it === playlist }) return false
+        songSelection.forPlaylist(playlist.id)
+        return true
+    }
+
     fun addSongToPlaylist(playlist: Playlist, song: Song) {
-        if (!playlist.songIds.contains(song.id)) {
-            playlist.songIds.add(song.id)
-            savePlaylists()
-        }
+        playlist.songIds.add(song.id)
+        savePlaylists()
     }
 
     /**
@@ -291,7 +324,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun playPlaylist(playlist: Playlist, startId: String) {
+    fun playPlaylist(playlist: Playlist, startId: String, startIndex: Int? = null) {
         val intent = Intent(app, MusicService::class.java).apply {
             action = MusicService.ACTION_PLAY_PLAYLIST
             putStringArrayListExtra(
@@ -299,6 +332,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ArrayList(playlist.songIds)
             )
             putExtra(MusicService.EXTRA_PLAYLIST_START_ID, startId)
+            if (startIndex != null) putExtra(MusicService.EXTRA_PLAYLIST_START_INDEX, startIndex)
         }
         startPlaybackService(intent)
     }

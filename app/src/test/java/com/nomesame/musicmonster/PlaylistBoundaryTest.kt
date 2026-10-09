@@ -43,9 +43,9 @@ class PlaylistBoundaryTest {
         val loaded = load("""[{"id":42,"name":"Bad"},{"id":"bad","name":null},{"id":"ok","name":"Valid"}]""")
         assertEquals(listOf("ok"), loaded.playlists.map { it.id })
     }
-    @Test fun invalidSongIdsAreIgnoredAndDuplicatesCollapsed() {
+    @Test fun invalidSongIdsAreIgnoredAndIntentionalDuplicatesPreserved() {
         val loaded = load("""[{"id":"a","name":"A","songs":[null,7,{},""," ","s","s","🎵"]}]""")
-        assertEquals(listOf("s", "🎵"), loaded.playlists.single().songIds.toList())
+        assertEquals(listOf("s", "s", "🎵"), loaded.playlists.single().songIds.toList())
     }
     @Test fun duplicateStoredPlaylistIdsMergeWithoutLosingSongs() {
         val loaded = load("""[{"id":"a","name":"First","songs":["x"]},{"id":"a","name":"Second","songs":["x","y"]}]""")
@@ -96,6 +96,6 @@ class PlaylistBoundaryTest {
         val next = requireNotNull(repo.importInto(raw, target, 0))
         repo.importInto(raw, target, next)
         assertEquals(1, target.size)
-        assertEquals(listOf("α", "β"), target.single().songIds.toList())
+        assertEquals(listOf("α", "β", "α"), target.single().songIds.toList())
     }
 }
