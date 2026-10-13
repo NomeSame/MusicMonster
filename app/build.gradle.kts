@@ -25,11 +25,11 @@ android {
         applicationId = "com.nomesame.musicmonster"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // Set false to hide the language-settings entry in every build; the implementation stays.
+        // Set false to hide language options; the settings entry and language implementation stay.
         buildConfigField("boolean", "SHOW_LANGUAGE_SETTINGS", "true")
     }
 

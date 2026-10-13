@@ -119,11 +119,15 @@ class AppLanguageUiTest {
     }
 
     @Test fun visibilityFlagAffectsEntryButKeepsLanguageFunctionAvailable() {
+        compose.onNodeWithTag("app_settings").assertExists()
+        compose.onNodeWithTag("app_settings").performClick()
+        compose.onNodeWithTag("seek_interval_setting").assertExists()
         if (BuildConfig.SHOW_LANGUAGE_SETTINGS) {
-            compose.onNodeWithTag("app_settings").assertExists()
+            compose.onNodeWithTag("language_GERMAN").assertExists()
         } else {
-            compose.onNodeWithTag("app_settings").assertDoesNotExist()
+            compose.onNodeWithTag("language_GERMAN").assertDoesNotExist()
         }
+        compose.onNodeWithTag("settings_close").performClick()
         compose.runOnIdle { vm.setAppLanguage(AppLanguage.GERMAN) }
         compose.onNodeWithText("Kein Song ausgewählt").assertExists()
         compose.runOnIdle { assertEquals(AppLanguage.GERMAN, LanguageRepository(prefs).load()) }

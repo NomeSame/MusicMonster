@@ -5,6 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import com.nomesame.musicmonster.data.SeekSettingsRepository
+import com.nomesame.musicmonster.playback.seekWithinSong
 import com.nomesame.musicmonster.data.LanguageRepository
 import com.nomesame.musicmonster.data.MediaAppearanceRepository
 import com.nomesame.musicmonster.playback.MediaArtworkController
@@ -280,6 +282,10 @@ class MusicService : Service() {
                     setPlaybackState(player.isPlaying)
                     updateNotification(player.isPlaying)
                 }
+
+                override fun onRewind() = seekWithinSong(forward = false)
+
+                override fun onFastForward() = seekWithinSong(forward = true)
 
                 override fun onSeekTo(pos: Long) {
                     player.seekTo(pos.coerceAtLeast(0L))
@@ -578,6 +584,17 @@ class MusicService : Service() {
         )
     }
 
+    private fun seekWithinSong(forward: Boolean) {
+        if (playerReleased) return
+        val settings = SeekSettingsRepository(prefs)
+        if (!settings.buttonsEnabled()) return
+        val seconds = settings.loadSeconds()
+        if (!seekWithinSong(player, seconds, forward)) return
+        savePlaybackState()
+        setPlaybackState(player.isPlaying)
+        updateNotification(player.isPlaying)
+    }
+
     private fun setPlaybackState(isPlaying: Boolean) {
         val actions =
             PlaybackStateCompat.ACTION_PLAY or
@@ -585,6 +602,8 @@ class MusicService : Service() {
                     PlaybackStateCompat.ACTION_PLAY_PAUSE or
                     PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
                     PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
+                    PlaybackStateCompat.ACTION_REWIND or
+                    PlaybackStateCompat.ACTION_FAST_FORWARD or
                     PlaybackStateCompat.ACTION_SEEK_TO or
                     PlaybackStateCompat.ACTION_SET_SHUFFLE_MODE or
                     PlaybackStateCompat.ACTION_STOP

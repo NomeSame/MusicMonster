@@ -161,6 +161,8 @@ fun PlayerScreen(
     val pendingPaletteAccent = viewModel.pendingPaletteAccent.collectAsState().value
     val playerOpacity by viewModel.playerOpacity.collectAsState()
     val appLanguage by viewModel.appLanguage.collectAsState()
+    val seekSeconds by viewModel.seekSeconds.collectAsState()
+    val seekButtonsEnabled by viewModel.seekButtonsEnabled.collectAsState()
     val customBgBitmap = rememberBackgroundBitmap(if (customBgEnabled) customBgUri else null)
     val useDefaultBgImage = customBgEnabled && customBgUri == null
     // 0 = list covers everything, 1 = list fully pulled down (screens revealed).
@@ -215,7 +217,9 @@ fun PlayerScreen(
                         tint = iconGlow
                     )
                 }
-                AppSettingsButton(appLanguage, viewModel::setAppLanguage)
+                AppSettingsButton(appLanguage, viewModel::setAppLanguage,
+                    seekSeconds, viewModel::setSeekSeconds,
+                    seekButtonsEnabled, viewModel::setSeekButtonsEnabled)
             }
 
             AnimatedContent(
@@ -544,6 +548,11 @@ fun PlayerScreen(
                         accent = iconGlow,
                         shuffleActiveColor = panelGlow,
                         shuffleInactiveColor = textMuted,
+                        seekSeconds = seekSeconds,
+                        showSeekButtons = seekButtonsEnabled,
+                        canSeek = currentId != null && durationMs > 0L && !isScrubbing,
+                        onRewind = playbackConnection::rewind,
+                        onFastForward = playbackConnection::fastForward,
                         onPrevious = { playbackConnection.skipToPrevious() },
                         onPlayPause = {
                             if (playing) {

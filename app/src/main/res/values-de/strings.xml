@@ -100,4 +100,10 @@
     <string name="card_crop_vertical">Vertikale Position</string>
     <string name="card_crop_center">Zentrieren</string>
     <string name="card_crop_zoom">Zoom: %1$.1f×</string>
+    <string name="seek_interval">Sprungweite</string>
+    <string name="seek_interval_value">Sprungweite: %1$d Sekunden</string>
+    <string name="seek_seconds">%1$d Sekunden</string>
+    <string name="seek_backward">%1$d Sekunden zurück</string>
+    <string name="seek_forward">%1$d Sekunden vor</string>
+    <string name="seek_buttons_enabled">Sprungbuttons</string>
 </resources>

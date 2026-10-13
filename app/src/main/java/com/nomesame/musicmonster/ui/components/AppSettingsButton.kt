@@ -1,5 +1,7 @@
 package com.nomesame.musicmonster.ui.components
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,15 +28,25 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.nomesame.musicmonster.SeekStep
 import com.nomesame.musicmonster.R
 import com.nomesame.musicmonster.BuildConfig
 import com.nomesame.musicmonster.model.AppLanguage
 
 /** Small overflow entry; only transient dialog visibility is owned by the UI. */
 @Composable
-fun AppSettingsButton(language: AppLanguage, onLanguageChange: (AppLanguage) -> Unit) {
-    if (!BuildConfig.SHOW_LANGUAGE_SETTINGS) return
+fun AppSettingsButton(
+    language: AppLanguage,
+    onLanguageChange: (AppLanguage) -> Unit,
+    seekSeconds: Int = SeekStep.DEFAULT_SECONDS,
+    onSeekSecondsChange: (Int) -> Unit = {},
+    seekButtonsEnabled: Boolean = true,
+    onSeekButtonsEnabledChange: (Boolean) -> Unit = {}
+) {
     var open by rememberSaveable { mutableStateOf(false) }
+    var seekPickerOpen by rememberSaveable { mutableStateOf(false) }
+    if (seekPickerOpen) SeekIntervalPicker(seekSeconds, onSeekSecondsChange,
+        seekButtonsEnabled, onSeekButtonsEnabledChange) { seekPickerOpen = false }
     IconButton(onClick = { open = true }, modifier = Modifier.testTag("app_settings")) {
         Icon(Icons.Default.MoreVert, stringResource(R.string.settings),
             tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -44,24 +56,30 @@ fun AppSettingsButton(language: AppLanguage, onLanguageChange: (AppLanguage) -> 
             onDismissRequest = { open = false },
             title = { Text(stringResource(R.string.settings)) },
             text = {
-                Column(Modifier.selectableGroup()) {
-                    Text(stringResource(R.string.app_language), style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.padding(bottom = 8.dp))
-                    AppLanguage.entries.forEach { option ->
-                        val label = when (option) {
-                            AppLanguage.SYSTEM -> R.string.language_system
-                            AppLanguage.ENGLISH -> R.string.language_english
-                            AppLanguage.GERMAN -> R.string.language_german
-                        }
-                        Row(
-                            Modifier.fillMaxWidth().testTag("language_${option.name}")
-                                .selectable(language == option, role = Role.RadioButton,
-                                    onClick = { onLanguageChange(option) })
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(selected = language == option, onClick = null)
-                            ControlLabel(stringResource(label), Modifier.weight(1f).padding(start = 12.dp))
+                Column(Modifier.verticalScroll(rememberScrollState()).selectableGroup()) {
+                    TextButton(onClick = { open = false; seekPickerOpen = true },
+                        modifier = Modifier.fillMaxWidth().testTag("seek_interval_setting")) {
+                        ControlLabel(stringResource(R.string.seek_interval_value, seekSeconds))
+                    }
+                    if (BuildConfig.SHOW_LANGUAGE_SETTINGS) {
+                        Text(stringResource(R.string.app_language), style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.padding(bottom = 8.dp))
+                        AppLanguage.entries.forEach { option ->
+                            val label = when (option) {
+                                AppLanguage.SYSTEM -> R.string.language_system
+                                AppLanguage.ENGLISH -> R.string.language_english
+                                AppLanguage.GERMAN -> R.string.language_german
+                            }
+                            Row(
+                                Modifier.fillMaxWidth().testTag("language_${option.name}")
+                                    .selectable(language == option, role = Role.RadioButton,
+                                        onClick = { onLanguageChange(option) })
+                                    .padding(vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(selected = language == option, onClick = null)
+                                ControlLabel(stringResource(label), Modifier.weight(1f).padding(start = 12.dp))
+                            }
                         }
                     }
                 }
