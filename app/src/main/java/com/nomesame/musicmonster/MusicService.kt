@@ -5,6 +5,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import com.nomesame.musicmonster.data.PlaybackStateRepository
+import com.nomesame.musicmonster.model.PlaybackResumeState
+import com.nomesame.musicmonster.playback.PlaybackCheckpointController
 import com.nomesame.musicmonster.data.SeekSettingsRepository
 import com.nomesame.musicmonster.playback.seekWithinSong
 import com.nomesame.musicmonster.data.LanguageRepository
@@ -115,6 +118,16 @@ class MusicService : Service() {
         getSharedPreferences("music_prefs", MODE_PRIVATE)
     }
 
+    private var restoringPlayback = true
+    private val playbackCheckpoints by lazy {
+        PlaybackCheckpointController(PlaybackStateRepository(prefs), snapshot = {
+            if (playerReleased || restoringPlayback) null
+            else player.currentMediaItem?.let {
+                PlaybackResumeState(it.mediaId, player.currentPosition.coerceAtLeast(0L), player.shuffleModeEnabled)
+            }
+        })
+    }
+
     private val languageRepository by lazy { LanguageRepository(this) }
     private val mediaArtwork by lazy {
         val loader = MediaArtworkLoader(this)
@@ -145,9 +158,9 @@ class MusicService : Service() {
     companion object {
         const val CHANNEL_ID = "monsterplayer_channel"
         const val NOTIFICATION_ID = 1
-        const val PREF_LAST_SONG_ID = "last_song_id"
-        const val PREF_LAST_POSITION = "last_position"
-        const val PREF_SHUFFLE_ENABLED = "shuffle_enabled"
+        const val PREF_LAST_SONG_ID = PlaybackStateRepository.KEY_SONG
+        const val PREF_LAST_POSITION = PlaybackStateRepository.KEY_POSITION
+        const val PREF_SHUFFLE_ENABLED = PlaybackStateRepository.KEY_SHUFFLE
         const val ACTION_TOGGLE_SHUFFLE = "com.nomesame.musicmonster.action.TOGGLE_SHUFFLE"
         const val ACTION_RELOAD_LIBRARY = "com.nomesame.musicmonster.action.RELOAD_LIBRARY"
         const val ACTION_SET_SLEEP_TIMER = "com.nomesame.musicmonster.action.SET_SLEEP_TIMER"
@@ -297,6 +310,7 @@ class MusicService : Service() {
 
                 override fun onStop() {
                     pendingPlayback.pause()
+                    savePlaybackState()
                     player.stop()
                     setPlaybackState(false)
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -313,6 +327,7 @@ class MusicService : Service() {
         // Keep notification in sync if user changes track / state
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                playbackCheckpoints.setPlaying(isPlaying)
                 setPlaybackState(isPlaying)
                 updateNotification(isPlaying)
                 if (isPlaying) {
@@ -342,6 +357,14 @@ class MusicService : Service() {
                 updateSessionMetadata()
                 setPlaybackState(player.isPlaying)
                 updateNotification(player.isPlaying)
+                savePlaybackState()
+            }
+
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int
+            ) {
                 savePlaybackState()
             }
 
@@ -395,23 +418,23 @@ class MusicService : Service() {
         libraryTitles = items.zip(itemTitles).associate { it.first.mediaId to it.second }
 
         if (restoreLastSession) {
-            if (items.isNotEmpty()) {
-                player.setMediaItems(items)
-                player.prepare()
-            }
-            val (lastId, lastPos, shuffleWasOn) = restorePlaybackState()
-            if (shuffleWasOn && items.isNotEmpty()) {
-                player.shuffleModeEnabled = true
-                reshufflePlaylist()
-            }
-            if (lastId != null && items.isNotEmpty()) {
-                val targetIndex = items.indexOfFirst { it.mediaId == lastId }
-                if (targetIndex >= 0) {
-                    // A stale saved position can exceed the track (file
-                    // replaced/re-encoded); ExoPlayer clamps, but never seek
-                    // to a negative one.
-                    player.seekTo(targetIndex, lastPos.coerceAtLeast(0L))
+            restoringPlayback = true
+            try {
+                // Read before setMediaItems: its transition callback must not overwrite the saved session.
+                val (lastId, lastPos, shuffleWasOn) = restorePlaybackState()
+                if (items.isNotEmpty()) {
+                    val savedIndex = items.indexOfFirst { it.mediaId == lastId }
+                    val targetIndex = savedIndex.coerceAtLeast(0)
+                    val targetPosition = if (savedIndex >= 0) lastPos.coerceAtLeast(0L) else 0L
+                    player.setMediaItems(items, targetIndex, targetPosition)
+                    player.shuffleModeEnabled = shuffleWasOn
+                    if (shuffleWasOn) reshufflePlaylist()
+                    session.setShuffleMode(if (shuffleWasOn) PlaybackStateCompat.SHUFFLE_MODE_ALL
+                        else PlaybackStateCompat.SHUFFLE_MODE_NONE)
+                    player.prepare()
                 }
+            } finally {
+                restoringPlayback = false
             }
         } else {
             applyReloadedLibrary(items)
@@ -505,6 +528,7 @@ class MusicService : Service() {
                 reshufflePlaylist()
             }
             session.setShuffleMode(newMode)
+            savePlaybackState()
             setPlaybackState(player.isPlaying)
             updateNotification(player.isPlaying)
             return START_STICKY
@@ -557,6 +581,7 @@ class MusicService : Service() {
         notificationHandler.removeCallbacks(notificationRefresh)
         notificationCardRebuilder.close()
         savePlaybackState()
+        playbackCheckpoints.close()
         session.isActive = false
         session.release()
         // Order matters: cancelSleepTimer() writes player.volume, so it has to
@@ -861,18 +886,11 @@ class MusicService : Service() {
     }
 
     private fun savePlaybackState() {
-        prefs.edit()
-            .putString(PREF_LAST_SONG_ID, player.currentMediaItem?.mediaId)
-            .putLong(PREF_LAST_POSITION, player.currentPosition)
-            .putBoolean(PREF_SHUFFLE_ENABLED, player.shuffleModeEnabled)
-            .apply()
+        playbackCheckpoints.saveNow()
     }
 
     private fun restorePlaybackState(): Triple<String?, Long, Boolean> {
-        return Triple(
-            prefs.stringOr(PREF_LAST_SONG_ID, null),
-            prefs.longOr(PREF_LAST_POSITION, 0L),
-            prefs.booleanOr(PREF_SHUFFLE_ENABLED, false)
-        )
+        val state = playbackCheckpoints.load()
+        return Triple(state.songId, state.positionMs, state.shuffleEnabled)
     }
 }

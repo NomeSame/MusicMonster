@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -75,9 +76,53 @@ class SeekControlsUiTest {
             assertFalse("Overlapping touch areas", a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom)
         } }
     }
+    @Test fun hiddenButtonsLeaveTheirOldTouchPositionsInertInEveryLayout() {
+        val visible = mutableStateOf(true)
+        val width = mutableIntStateOf(340)
+        var rewind = 0; var forward = 0; var others = 0
+        content { Box(Modifier.width(width.intValue.dp)) {
+            TransportControls(false, false, Color.Red, Color.Red, Color.Gray,
+                { others++ }, { others++ }, { others++ }, { others++ },
+                canSeek = true, onRewind = { rewind++ }, onFastForward = { forward++ },
+                showSeekButtons = visible.value)
+        } }
+        listOf(340, 260, 200).forEach { layoutWidth ->
+            compose.runOnIdle { width.intValue = layoutWidth; visible.value = true }
+            val left = compose.onNodeWithTag("transport_rewind").fetchSemanticsNode().boundsInRoot.center
+            val right = compose.onNodeWithTag("transport_forward").fetchSemanticsNode().boundsInRoot.center
+            val previous = compose.onNodeWithTag("transport_previous").fetchSemanticsNode().boundsInRoot
+            compose.runOnIdle { visible.value = false }
+            compose.onNodeWithTag("transport_rewind", useUnmergedTree = true).assertDoesNotExist()
+            compose.onNodeWithTag("transport_forward", useUnmergedTree = true).assertDoesNotExist()
+            assertEquals(previous, compose.onNodeWithTag("transport_previous").fetchSemanticsNode().boundsInRoot)
+            val origin = compose.onRoot().fetchSemanticsNode().boundsInRoot.topLeft
+            compose.onRoot().performTouchInput { click(left - origin); click(right - origin) }
+            compose.runOnIdle { assertEquals(0, rewind); assertEquals(0, forward); assertEquals(0, others) }
+        }
+        compose.runOnIdle { visible.value = true }
+        compose.onNodeWithTag("transport_rewind").performClick()
+        compose.onNodeWithTag("transport_forward").performClick()
+        compose.runOnIdle { assertEquals(1, rewind); assertEquals(1, forward) }
+    }
+
+    @Test fun pickerSwitchDefaultsOnAndRetainsItsStateAndIntervalAfterReopening() {
+        val enabled = mutableStateOf(true)
+        content { AppSettingsButton(AppLanguage.ENGLISH, {}, 35,
+            seekButtonsEnabled = enabled.value, onSeekButtonsEnabledChange = { enabled.value = it }) }
+        compose.onNodeWithTag("app_settings").performClick()
+        compose.onNodeWithTag("seek_interval_setting").performClick()
+        compose.onNodeWithTag("seek_buttons_switch").assertIsOn().performClick().assertIsOff()
+        compose.onNodeWithTag("seek_seconds_35").assertIsSelected()
+        compose.onNodeWithTag("seek_picker_done").performClick()
+        compose.onNodeWithTag("app_settings").performClick()
+        compose.onNodeWithTag("seek_interval_setting").performClick()
+        compose.onNodeWithTag("seek_buttons_switch").assertIsOff().performClick().assertIsOn()
+        compose.onNodeWithTag("seek_seconds_35").assertIsSelected()
+    }
+
     @Test fun scrollPickerOffersFiveSecondStepsAndUpdatesSelection() {
         val seconds = mutableIntStateOf(10)
-        content { AppSettingsButton(AppLanguage.ENGLISH, {}, seconds.intValue) { seconds.intValue = it } }
+        content { AppSettingsButton(AppLanguage.ENGLISH, {}, seconds.intValue, onSeekSecondsChange = { seconds.intValue = it }) }
         compose.onNodeWithTag("app_settings").performClick()
         compose.onNodeWithTag("seek_interval_setting").performClick()
         compose.onNodeWithTag("seek_seconds_10").assertIsSelected()

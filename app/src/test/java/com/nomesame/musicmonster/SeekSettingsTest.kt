@@ -29,6 +29,21 @@ class SeekSettingsTest {
         prefs.edit().putString(SeekSettingsRepository.KEY_SECONDS, "25").commit()
         assertEquals(10, repo.loadSeconds())
     }
+    @Test fun buttonToggleDefaultsOnSurvivesRecreationAndKeepsInterval() {
+        prefs.edit().clear().commit()
+        val repo = SeekSettingsRepository(prefs)
+        assertTrue(repo.buttonsEnabled())
+        assertFalse(prefs.contains(SeekSettingsRepository.KEY_BUTTONS_ENABLED))
+        repo.saveSeconds(35)
+        repo.setButtonsEnabled(false)
+        assertFalse(SeekSettingsRepository(prefs).buttonsEnabled())
+        assertEquals(35, repo.loadSeconds())
+        repo.setButtonsEnabled(true)
+        assertTrue(SeekSettingsRepository(prefs).buttonsEnabled())
+        prefs.edit().putString(SeekSettingsRepository.KEY_BUTTONS_ENABLED, "false").commit()
+        assertTrue(repo.buttonsEnabled())
+    }
+
     @Test fun everyChoiceSurvivesRecreationAndUnrelatedPreferencesStayIntact() {
         prefs.edit().clear().putString("untouched", "🎵").commit()
         SeekStep.options.forEach {
@@ -53,11 +68,17 @@ class SeekSettingsTest {
             val vm = MainViewModel(app).also { store.put("first", it) }
             vm.songSelection.start("fixture")
             val selection = vm.songSelection.state.value
+            assertTrue(vm.seekButtonsEnabled.value)
+            vm.setSeekButtonsEnabled(false)
+            assertFalse(vm.seekButtonsEnabled.value)
             assertEquals(10, vm.seekSeconds.value)
             vm.setSeekSeconds(35)
             assertEquals(35, vm.seekSeconds.value)
             assertEquals(selection, vm.songSelection.state.value)
             val recreated = MainViewModel(app).also { store.put("second", it) }
+            assertFalse(recreated.seekButtonsEnabled.value)
+            recreated.setSeekButtonsEnabled(true)
+            assertTrue(recreated.seekButtonsEnabled.value)
             assertEquals(35, recreated.seekSeconds.value)
             recreated.setSeekSeconds(0)
             assertEquals(10, recreated.seekSeconds.value)

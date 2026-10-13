@@ -34,6 +34,8 @@ class SongSeekInstrumentedTest {
     private lateinit var connection: PlaybackConnection
     private var seconds = 10
     private var commands = 0
+    private var buttonsEnabled = true
+    private var seekAcknowledged = false
     private fun <T> main(action: () -> T): T {
         var value: Any? = null
         ins.runOnMainSync { value = action() }
@@ -63,6 +65,7 @@ class SongSeekInstrumentedTest {
             player.prepare()
             session = MediaSessionCompat(ins.targetContext, "isolated-seek-fixture")
             session.setCallback(object : MediaSessionCompat.Callback() {
+                override fun onSeekTo(pos: Long) { player.seekTo(pos); seekAcknowledged = true }
                 override fun onRewind() { seekWithinSong(player, seconds, false); commands++ }
                 override fun onFastForward() { seekWithinSong(player, seconds, true); commands++ }
             }, Handler(Looper.getMainLooper()))
@@ -73,7 +76,7 @@ class SongSeekInstrumentedTest {
             session.setPlaybackState(PlaybackStateCompat.Builder()
                 .setActions(PlaybackStateCompat.ACTION_REWIND or PlaybackStateCompat.ACTION_FAST_FORWARD)
                 .setState(PlaybackStateCompat.STATE_PAUSED, 0, 0f).build())
-            connection = PlaybackConnection(ins.targetContext)
+            connection = PlaybackConnection(ins.targetContext) { buttonsEnabled }
             connection.connect({ session.sessionToken })
         }
         await("ready real WAV and connection") { main { player.playbackState == Player.STATE_READY && connection.isReady.value } }
@@ -124,6 +127,25 @@ class SongSeekInstrumentedTest {
             assertEquals(0, player.currentMediaItemIndex)
         }
         await("continues playing after jump") { main { player.isPlaying } }
+    }
+
+    @Test fun disabledButtonsSendNoCommandsAndLeaveAbsoluteSeekingAvailable() {
+        main {
+            buttonsEnabled = false
+            player.seekTo(20_000)
+            connection.rewind()
+            connection.fastForward()
+            connection.seekTo(20_000)
+        }
+        await("absolute seek acknowledges connected session") { main { seekAcknowledged } }
+        main {
+            assertEquals(0, commands)
+            assertEquals(20_000L, player.currentPosition)
+            buttonsEnabled = true
+            connection.fastForward()
+        }
+        await("enabled forward") { main { commands == 1 } }
+        main { assertEquals(30_000L, player.currentPosition) }
     }
 
     @Test fun emptyPlayerCannotSeekOrSelectAnotherItem() {

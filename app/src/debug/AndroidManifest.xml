@@ -4,4 +4,9 @@
          on API 24-28. The production release does not request write access. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+    <application>
+        <service android:name=".debug.PlaybackResumeProbeService"
+            android:exported="false" android:process=":playbackResumeProbe"
+            android:foregroundServiceType="mediaPlayback" />
+    </application>
 </manifest>
