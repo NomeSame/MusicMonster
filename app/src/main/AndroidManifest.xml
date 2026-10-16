@@ -2,6 +2,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <permission
+        android:name="com.nomesame.musicmonster.permission.BIND_PLUGIN"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.nomesame.musicmonster.permission.BIND_PLUGIN" />
+    <queries>
+        <intent>
+            <action android:name="com.nomesame.musicmonster.plugin.BIND_V1" />
+        </intent>
+    </queries>
+
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />

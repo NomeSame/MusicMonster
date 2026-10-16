@@ -42,3 +42,7 @@ keystore.properties
 # Local test review reports
 test-review-*.log
 TEST_REVIEW.md
+
+# Separate local repository; never publish private extensions with the player.
+/private-plugin/
+/plugin-api/build/
