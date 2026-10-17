@@ -112,4 +112,10 @@
     <string name="rename_choose_folder">Choose folder again</string>
     <string name="extension_discard">Discard pending extension output</string>
     <string name="extension_failed">The extension could not save an audio file. Select a writable library folder and try again.</string>
+    <string name="seek_interval">Skip interval</string>
+    <string name="seek_interval_value">Skip interval: %1$d seconds</string>
+    <string name="seek_seconds">%1$d seconds</string>
+    <string name="seek_backward">Back %1$d seconds</string>
+    <string name="seek_forward">Forward %1$d seconds</string>
+    <string name="seek_buttons_enabled">Skip buttons</string>
 </resources>

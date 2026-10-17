@@ -19,7 +19,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * actions are proxied to the controller. Behavior matches the original
  * MainActivity.initMediaController; only the location changed.
  */
-class PlaybackConnection(private val context: Context) {
+class PlaybackConnection(
+    private val context: Context,
+    private val seekButtonsEnabled: () -> Boolean = { true }
+) {
 
     private var mediaController: MediaControllerCompat? = null
     private var boundToken: MediaSessionCompat.Token? = null
@@ -215,6 +218,16 @@ class PlaybackConnection(private val context: Context) {
 
     fun skipToPrevious() {
         mediaController?.transportControls?.skipToPrevious()
+    }
+
+    fun rewind() {
+        if (!seekButtonsEnabled()) return
+        mediaController?.transportControls?.rewind()
+    }
+
+    fun fastForward() {
+        if (!seekButtonsEnabled()) return
+        mediaController?.transportControls?.fastForward()
     }
 
     fun seekTo(positionMs: Long) {

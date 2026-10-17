@@ -112,4 +112,10 @@
     <string name="rename_choose_folder">Ordner erneut wählen</string>
     <string name="extension_discard">Ausstehende Erweiterungsausgabe verwerfen</string>
     <string name="extension_failed">Die Erweiterung konnte keine Audiodatei speichern. Bitte einen beschreibbaren Bibliotheksordner auswählen und erneut versuchen.</string>
+    <string name="seek_interval">Sprungweite</string>
+    <string name="seek_interval_value">Sprungweite: %1$d Sekunden</string>
+    <string name="seek_seconds">%1$d Sekunden</string>
+    <string name="seek_backward">%1$d Sekunden zurück</string>
+    <string name="seek_forward">%1$d Sekunden vor</string>
+    <string name="seek_buttons_enabled">Sprungbuttons</string>
 </resources>

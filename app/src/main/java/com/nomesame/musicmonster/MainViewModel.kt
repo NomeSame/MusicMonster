@@ -17,6 +17,7 @@ import com.nomesame.musicmonster.audio.EqualizerController
 import com.nomesame.musicmonster.data.MediaAppearanceRepository
 import com.nomesame.musicmonster.playback.MediaArtworkLoader
 import com.nomesame.musicmonster.data.BackgroundRepository
+import com.nomesame.musicmonster.data.SeekSettingsRepository
 import com.nomesame.musicmonster.data.LanguageRepository
 import com.nomesame.musicmonster.model.AppLanguage
 import com.nomesame.musicmonster.data.PlaylistRepository
@@ -53,6 +54,22 @@ class MainViewModel(application: Application, savedState: SavedStateHandle = Sav
 
     private val playlistRepository = PlaylistRepository(prefs, application.contentResolver)
     private val songRepository = SongRepository(application, prefs)
+    private val seekSettingsRepository = SeekSettingsRepository(prefs)
+    private val _seekButtonsEnabled = MutableStateFlow(seekSettingsRepository.buttonsEnabled())
+    val seekButtonsEnabled: StateFlow<Boolean> = _seekButtonsEnabled.asStateFlow()
+
+    fun setSeekButtonsEnabled(enabled: Boolean) {
+        seekSettingsRepository.setButtonsEnabled(enabled)
+        _seekButtonsEnabled.value = enabled
+    }
+
+    private val _seekSeconds = MutableStateFlow(seekSettingsRepository.loadSeconds())
+    val seekSeconds: StateFlow<Int> = _seekSeconds.asStateFlow()
+
+    fun setSeekSeconds(seconds: Int) {
+        _seekSeconds.value = seekSettingsRepository.saveSeconds(seconds)
+    }
+
     private val backgroundRepository = BackgroundRepository(prefs)
     val artworkCrop = ArtworkCropState(MediaAppearanceRepository(prefs), viewModelScope) { appearance ->
         MediaArtworkLoader(application).loadPreview(appearance)
@@ -79,7 +96,7 @@ class MainViewModel(application: Application, savedState: SavedStateHandle = Sav
     }
 
     val equalizerController = EqualizerController()
-    val playbackConnection = PlaybackConnection(application)
+    val playbackConnection = PlaybackConnection(application, seekSettingsRepository::buttonsEnabled)
     val songRename = com.nomesame.musicmonster.state.SongRenameController(
         com.nomesame.musicmonster.data.SongRenameRepository(application),
         com.nomesame.musicmonster.data.SongReferenceRepository(prefs),

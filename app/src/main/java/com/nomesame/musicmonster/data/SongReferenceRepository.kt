@@ -40,12 +40,11 @@ class SongReferenceRepository(private val prefs: SharedPreferences) {
         runCatching { JSONObject(it) }.getOrNull()
     }
 
-    @Synchronized
-    fun remap(oldId: String, newId: String): Boolean {
+    fun remap(oldId: String, newId: String): Boolean = exclusive {
         val editor = prefs.edit()
         val raw = prefs.stringOr("playlists_json", null)
         if (raw != null) {
-            val array = try { JSONArray(raw) } catch (_: Exception) { return false }
+            val array = try { JSONArray(raw) } catch (_: Exception) { return@exclusive false }
             for (index in 0 until array.length()) {
                 val songs = array.optJSONObject(index)?.optJSONArray("songs") ?: continue
                 for (entry in 0 until songs.length()) if (songs.opt(entry) == oldId) songs.put(entry, newId)
@@ -54,11 +53,23 @@ class SongReferenceRepository(private val prefs: SharedPreferences) {
         }
         if (prefs.stringOr("last_song_id", null) == oldId) editor.putString("last_song_id", newId)
         if (pending()?.optString("old") == oldId) editor.remove(PENDING)
-        return editor.commit()
+        val committed = editor.commit()
+        if (committed && oldId != newId) {
+            val aliases = renamedIds.getOrPut(prefs) { mutableMapOf() }
+            aliases.replaceAll { _, value -> if (value == oldId) newId else value }
+            aliases.remove(newId)
+            aliases[oldId] = newId
+        }
+        committed
     }
+
+    /** Queued checkpoints can have captured the previous URI before a successful rename. */
+    internal fun playbackId(id: String): String = exclusive { renamedIds[prefs]?.get(id) ?: id }
 
     private companion object {
         const val PENDING = "pending_file_rename"
         val lock = Any()
+        // Only in-flight snapshots need aliases; process restart has no old checkpoint workers.
+        val renamedIds = java.util.WeakHashMap<SharedPreferences, MutableMap<String, String>>()
     }
 }

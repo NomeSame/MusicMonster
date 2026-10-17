@@ -59,4 +59,20 @@ class CatalogRefreshTest {
         assertEquals("new", player.currentMediaItem?.mediaId)
         assertTrue(player.playWhenReady)
     }
+
+    @Test fun renameCheckpointsFinalQueuePositionAndRemappedId() = withService { service, player ->
+        player.setMediaItems(listOf(item("old"), item("b"), item("old")), 2, 42000)
+        player.shuffleModeEnabled = true
+        field(service, "titles").set(service, listOf("Old", "B", "Old"))
+        val intent = android.content.Intent(MusicService.ACTION_RENAME_SONG)
+            .putExtra("rename_old_id", "old").putExtra("rename_new_id", "new")
+            .putExtra("rename_uri", "file:///fixture-new.wav").putExtra("rename_title", "New")
+        MusicService::class.java.getDeclaredMethod("handleCommand", android.content.Intent::class.java)
+            .apply { isAccessible = true }.invoke(service, intent)
+        val checkpoints = MusicService::class.java.getDeclaredMethod("getPlaybackCheckpoints")
+            .apply { isAccessible = true }.invoke(service) as com.nomesame.musicmonster.playback.PlaybackCheckpointController
+        assertEquals(com.nomesame.musicmonster.model.PlaybackResumeState("new", 42000, true), checkpoints.load())
+        assertEquals(listOf("new", "b", "new"), (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId })
+        assertEquals(2, player.currentMediaItemIndex)
+    }
 }
