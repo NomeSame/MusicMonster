@@ -8,15 +8,17 @@ import com.nomesame.musicmonster.extension.api.ExtensionContract as Contract
 
 data class ExtensionAction(val component: ComponentName, val label: String)
 
-/** Discovery is fail-closed; arbitrary installed apps cannot contribute actions. */
-class ExtensionRegistry(private val context: Context) {
+/** Only modules packaged inside this application can contribute actions. */
+class ExtensionRegistry(private val context: Context,
+    private val enabled: Boolean = true) {
     fun actions(): List<ExtensionAction> = runCatching {
+        if (!enabled) return emptyList()
         val pm = context.packageManager
         @Suppress("DEPRECATION")
         pm.queryIntentActivities(Intent(Contract.ACTION), PackageManager.GET_META_DATA)
             .mapNotNull { match ->
                 val info = match.activityInfo ?: return@mapNotNull null
-                if (!info.enabled || !info.applicationInfo.enabled || !info.exported ||
+                if (info.packageName != context.packageName || !info.enabled || !info.applicationInfo.enabled ||
                     info.permission != Contract.PERMISSION ||
                     info.metaData?.get(Contract.META_VERSION) != Contract.VERSION ||
                     info.metaData?.getString(Contract.META_OUTPUT) != Contract.AUDIO ||

@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
             viewModel.loadSongs()
             viewModel.startMusicService()
         }
+        viewModel.extensions.folderSelected(uri)
     }
 
     /**
@@ -175,6 +176,14 @@ class MainActivity : ComponentActivity() {
             }, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch {
+                    viewModel.extensions.folderRequests.collect {
+                        if (viewModel.extensions.needsFolder()) {
+                            runCatching { selectFolderLauncher.launch(null) }
+                                .onFailure { viewModel.extensions.folderSelected(null) }
+                        }
+                    }
+                }
                 viewModel.extensions.requests.collect { request ->
                     runCatching { if (viewModel.extensions.canLaunch(request)) extensionResult.launch(request) }
                         .onFailure { viewModel.extensions.launchFailed() }

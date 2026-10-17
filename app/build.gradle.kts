@@ -8,7 +8,7 @@ plugins {
 
 // Signing secrets live in keystore.properties (gitignored), never in the repo.
 // If absent (CI/other machines), release stays unsigned instead of failing.
-val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystorePropertiesFile = project.file("../keystore.properties")
 val keystoreProperties = Properties().apply {
     if (keystorePropertiesFile.exists()) {
         keystorePropertiesFile.inputStream().use { load(it) }
@@ -36,7 +36,7 @@ android {
     signingConfigs {
         create("release") {
             if (keystorePropertiesFile.exists()) {
-                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storeFile = keystorePropertiesFile.parentFile.resolve(keystoreProperties.getProperty("storeFile"))
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")

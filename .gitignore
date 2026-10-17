@@ -35,9 +35,8 @@ keystore.properties
 *.bak
 *.OLD*
 
-# Markdown planning stays private; only the root public README is shareable.
+# Markdown files stay local and are excluded from new commits.
 *.[mM][dD]
-!/README.md
 
 # Local agent/tool settings
 .openclaude/

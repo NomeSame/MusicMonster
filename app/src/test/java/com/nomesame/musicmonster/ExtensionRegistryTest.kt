@@ -19,17 +19,17 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [30])
+@Config(sdk = [30], manifest = Config.NONE)
 class ExtensionRegistryTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val shadow get() = shadowOf(context.packageManager)
     @Suppress("DEPRECATION")
-    private fun install(signer: String = "aabb"): ActivityInfo {
+    private fun install(signer: String = "aabb", producerPackage: String = context.packageName): ActivityInfo {
         shadow.installPackage(PackageInfo().apply {
             packageName = context.packageName; signatures = arrayOf(Signature("aabb"))
             applicationInfo = context.applicationInfo
         })
-        val app = ApplicationInfo().apply { packageName = "fixture.extension"; enabled = true }
+        val app = ApplicationInfo().apply { packageName = producerPackage; enabled = true }
         shadow.installPackage(PackageInfo().apply {
             packageName = app.packageName; applicationInfo = app; signatures = arrayOf(Signature(signer))
         })
@@ -41,21 +41,33 @@ class ExtensionRegistryTest {
         shadow.addResolveInfoForIntent(Intent(Contract.ACTION), ResolveInfo().apply { activityInfo = activity })
         return activity
     }
-    @Test fun absentExtensionContributesNothing() { assertTrue(ExtensionRegistry(context).actions().isEmpty()) }
-    @Test fun acceptsOnlyMatchingSignedActivity() { install(); assertEquals("Create audio", ExtensionRegistry(context).actions().single().label) }
-    @Test fun foreignSignerNeverContributesAction() { install("bbcc"); assertTrue(ExtensionRegistry(context).actions().isEmpty()) }
+    @Test fun absentExtensionContributesNothing() { assertTrue(ExtensionRegistry(context, enabled = true).actions().isEmpty()) }
+    @Test fun acceptsOnlyMatchingSignedActivity() { install(); assertEquals("Create audio", ExtensionRegistry(context, enabled = true).actions().single().label) }
+    @Test fun separatelyInstalledProducerNeverContributesAction() {
+        install(producerPackage = "fixture.external")
+        assertTrue(ExtensionRegistry(context).actions().isEmpty())
+    }
     @Test fun hiddenDisabledWrongVersionAndWrongPermissionStayUnavailable() {
-        val activity = install(); val registry = ExtensionRegistry(context)
-        activity.exported = false; assertTrue(registry.actions().isEmpty()); activity.exported = true
+        val activity = install(); val registry = ExtensionRegistry(context, enabled = true)
+        activity.exported = false; assertEquals(1, registry.actions().size); activity.exported = true
         activity.enabled = false; assertTrue(registry.actions().isEmpty()); activity.enabled = true
         activity.applicationInfo.enabled = false; assertTrue(registry.actions().isEmpty()); activity.applicationInfo.enabled = true
         activity.metaData.putInt(Contract.META_VERSION, 2); assertTrue(registry.actions().isEmpty())
         activity.metaData.putInt(Contract.META_VERSION, 1); activity.permission = null; assertTrue(registry.actions().isEmpty())
     }
     @Test fun unsupportedOutputAndMalformedLabelsStayUnavailable() {
-        val activity = install(); val registry = ExtensionRegistry(context)
+        val activity = install(); val registry = ExtensionRegistry(context, enabled = true)
         activity.metaData.putString(Contract.META_OUTPUT, "image"); assertTrue(registry.actions().isEmpty())
         activity.metaData.putString(Contract.META_OUTPUT, Contract.AUDIO)
         activity.nonLocalizedLabel = "bad\nlabel"; assertTrue(registry.actions().isEmpty())
+    }
+    @Test fun explicitlyDisabledRegistryIgnoresEmbeddedModule() {
+        install()
+        assertEquals(1, ExtensionRegistry(context, enabled = true).actions().size)
+        assertTrue(ExtensionRegistry(context, enabled = false).actions().isEmpty())
+    }
+    @Test fun defaultRegistryDiscoversEmbeddedModule() {
+        install()
+        assertTrue(ExtensionRegistry(context).actions().isNotEmpty())
     }
 }

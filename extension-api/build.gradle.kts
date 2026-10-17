@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
 }
+dependencies { testImplementation(libs.junit) }
 layout.buildDirectory.set(rootProject.layout.buildDirectory.dir("extension-api"))
 android {
     namespace = "com.nomesame.musicmonster.extension.api"

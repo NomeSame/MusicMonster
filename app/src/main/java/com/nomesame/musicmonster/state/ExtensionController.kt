@@ -26,9 +26,10 @@ import java.util.UUID
 class ExtensionController(
     private val context: Context,
     private val scope: CoroutineScope,
+    extensionsEnabled: Boolean = true,
     private val onCompleted: () -> Unit,
 ) {
-    private val registry = ExtensionRegistry(context)
+    private val registry = ExtensionRegistry(context, extensionsEnabled)
     private val documents = ExtensionDocumentRepository(context)
     private val journal = ExtensionJournal(context)
     private val _actions = MutableStateFlow(emptyList<ExtensionAction>())
@@ -39,6 +40,9 @@ class ExtensionController(
     val failed = _failed.asStateFlow()
     private val launches = Channel<Intent>(Channel.BUFFERED)
     val requests = launches.receiveAsFlow()
+    private val folderSelections = Channel<Unit>(Channel.CONFLATED)
+    val folderRequests = folderSelections.receiveAsFlow()
+    private var awaitingFolder: Pair<ExtensionAction, String>? = null
     private var finishing = false
     private var cancelRequested = false
 
@@ -47,7 +51,14 @@ class ExtensionController(
 
     fun start(action: ExtensionAction, tree: Uri?, language: String) {
         if (_busy.value) return
-        if (tree == null || !registry.contains(action.component)) { _failed.value = true; refresh(); return }
+        if (!registry.contains(action.component)) { _failed.value = true; refresh(); return }
+        _failed.value = false
+        if (tree == null) {
+            awaitingFolder = action to language
+            _busy.value = true
+            folderSelections.trySend(Unit)
+            return
+        }
         cancelRequested = false
         _busy.value = true
         val request = UUID.randomUUID().toString()
@@ -107,7 +118,21 @@ class ExtensionController(
         }
     }
 
-    fun cancel() { cancelRequested = true; result(Activity.RESULT_CANCELED, null) }
+    /** Continue only the explicit action that asked for a destination; cancellation starts nothing. */
+    fun folderSelected(tree: Uri?) {
+        val pending = awaitingFolder ?: return
+        awaitingFolder = null
+        _busy.value = false
+        if (tree != null) start(pending.first, tree, pending.second)
+    }
+
+    fun needsFolder(): Boolean = awaitingFolder != null
+
+    fun cancel() {
+        cancelRequested = true
+        if (awaitingFolder != null) { awaitingFolder = null; _busy.value = false }
+        result(Activity.RESULT_CANCELED, null)
+    }
 
     fun launchFailed() { _failed.value = true; result(Activity.RESULT_CANCELED, null) }
 

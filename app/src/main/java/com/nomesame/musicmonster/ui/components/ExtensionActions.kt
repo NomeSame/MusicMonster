@@ -17,6 +17,7 @@ import com.nomesame.musicmonster.extensions.ExtensionAction
 @Composable
 fun ExtensionActions(actions: List<ExtensionAction>, busy: Boolean, failed: Boolean,
     onAction: (ExtensionAction) -> Unit, onCancel: () -> Unit, onDismissError: () -> Unit) {
+    if (actions.isEmpty()) return
     if (actions.isNotEmpty()) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.Center) {
             actions.forEach { action ->

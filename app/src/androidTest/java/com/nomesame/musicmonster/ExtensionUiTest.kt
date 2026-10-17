@@ -35,8 +35,8 @@ class ExtensionUiTest {
     }
     @Test fun installedProducerVisibilityMatchesActualDiscovery() {
         val arguments = InstrumentationRegistry.getArguments()
-        val pkg = requireNotNull(arguments.getString("extensionPackage"))
-        val expected = arguments.getString("expectedExtension", "true").toBoolean()
+        val pkg = arguments.getString("extensionPackage") ?: host.packageName
+        val expected = arguments.getString("expectedExtension", "false").toBoolean()
         val actions = com.nomesame.musicmonster.extensions.ExtensionRegistry(host).actions()
         assertEquals(expected, actions.any { it.component.packageName == pkg })
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
@@ -44,5 +44,12 @@ class ExtensionUiTest {
         }
         compose.onAllNodesWithTag("extension_action").assertCountEquals(actions.size)
         if (!expected) compose.onNodeWithTag("extension_action").assertDoesNotExist()
+    }
+    @Test fun removedExtensionHasNoLeftoverCancelOrErrorUi() {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            host.setContent { MyApplicationTheme { ExtensionActions(emptyList(), true, true, {}, {}, {}) } }
+        }
+        compose.onAllNodes(hasClickAction()).assertCountEquals(0)
+        compose.onNode(isDialog()).assertDoesNotExist()
     }
 }
