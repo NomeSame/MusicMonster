@@ -7,32 +7,32 @@ import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
 import androidx.test.runner.lifecycle.Stage
 import java.io.FileInputStream
 
-/**
- * Launch asynchronously and verify the real lifecycle with a bounded wait.
- * On the attached MIUI/API-33 device startActivitySync waits forever, with an
- * idle main thread, before ActivityScenarioRule can reach any test assertion.
- * This avoids that framework waiter; missing/blocked activities fail visibly.
- */
-fun launchComposeHost(): ComponentActivity {
+/** Observe real lifecycle transitions with deadlines; MIUI can hang startActivitySync indefinitely. */
+fun launchComposeHost(): ComponentActivity = launchTestActivity(ComponentActivity::class.java)
+
+fun <T : ComponentActivity> launchTestActivity(type: Class<T>): T {
     val instrumentation = InstrumentationRegistry.getInstrumentation()
     val context = instrumentation.targetContext
-    // MIUI also blocks the test process's background Context.startActivity.
-    // Use the shell launch that was verified to work, then observe the actual
-    // Activity lifecycle rather than bypassing any UI assertions.
     val descriptor = instrumentation.uiAutomation.executeShellCommand(
-        "am start -n ${context.packageName}/androidx.activity.ComponentActivity"
+        "am start -n ${context.packageName}/${type.name}"
     )
     descriptor.use { FileInputStream(it.fileDescriptor).use { stream -> stream.readBytes() } }
+    return awaitResumedTestActivity(type)
+}
+
+fun <T : ComponentActivity> awaitResumedTestActivity(type: Class<T>, previous: T? = null): T {
+    val instrumentation = InstrumentationRegistry.getInstrumentation()
     val deadline = SystemClock.uptimeMillis() + 10_000L
     while (SystemClock.uptimeMillis() < deadline) {
-        var activity: ComponentActivity? = null
+        var activity: T? = null
         instrumentation.runOnMainSync {
-            activity = ActivityLifecycleMonitorRegistry.getInstance()
+            val candidate = ActivityLifecycleMonitorRegistry.getInstance()
                 .getActivitiesInStage(Stage.RESUMED)
-                .firstOrNull { it.javaClass == ComponentActivity::class.java } as? ComponentActivity
+                .firstOrNull { it.javaClass == type && it !== previous }
+            if (candidate != null) activity = type.cast(candidate)
         }
         activity?.let { return it }
         SystemClock.sleep(50L)
     }
-    throw AssertionError("Compose test host did not reach RESUMED within 10 seconds")
+    throw AssertionError("${type.simpleName} did not reach RESUMED within 10 seconds")
 }

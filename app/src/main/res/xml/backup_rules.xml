@@ -8,4 +8,5 @@
 -->
 <full-backup-content>
     <exclude domain="sharedpref" path="music_prefs.xml" />
+        <exclude domain="sharedpref" path="extension_output.xml" />
 </full-backup-content>

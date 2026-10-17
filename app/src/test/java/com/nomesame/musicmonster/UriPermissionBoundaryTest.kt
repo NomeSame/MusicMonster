@@ -20,17 +20,17 @@ class UriPermissionBoundaryTest {
     @Before fun setup() { UriGrantContractShadow.modes.clear() }
     private fun invokeReadGrant(tree: Boolean) {
         val activity = Robolectric.buildActivity(MainActivity::class.java).get()
-        val method = MainActivity::class.java.declaredMethods.single { it.name == "takeReadPermission" }
+        val method = MainActivity::class.java.declaredMethods.single { it.name == if (tree) "takeFolderPermission" else "takeReadPermission" }
         method.isAccessible = true
         val uri = Uri.parse("content://probe/${if (tree) "tree" else "document"}/chosen")
         // The old helper had a boolean selecting the broken tree flags. The
-        // corrected helper shares a single read-only grant for both pickers.
+        // folder now persists write access; backgrounds remain read-only.
         if (method.parameterCount == 2) method.invoke(activity, uri, tree)
         else method.invoke(activity, uri)
     }
-    @Test fun folderGrantUsesOnlyTheAcceptedReadMode() {
+    @Test fun folderGrantPersistsReadAndWriteModes() {
         invokeReadGrant(true)
-        assertEquals(listOf(Intent.FLAG_GRANT_READ_URI_PERMISSION), UriGrantContractShadow.modes)
+        assertEquals(listOf(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION), UriGrantContractShadow.modes)
     }
     @Test fun backgroundGrantUsesOnlyTheAcceptedReadMode() {
         invokeReadGrant(false)

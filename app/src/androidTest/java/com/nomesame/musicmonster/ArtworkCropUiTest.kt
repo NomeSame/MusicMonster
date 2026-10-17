@@ -70,8 +70,25 @@ class ArtworkCropUiTest {
             .performSemanticsAction(SemanticsActions.SetProgress) { assertTrue(it(value)) }
     }
     private fun previewColor(): Int {
-        val image = compose.onNodeWithTag("artwork_crop_preview").performScrollTo().captureToImage()
-        return image.toPixelMap()[image.width / 2, image.height / 2].toArgb()
+        val node = compose.onNodeWithTag("artwork_crop_preview").performScrollTo()
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            val image = node.captureToImage()
+            return image.toPixelMap()[image.width / 2, image.height / 2].toArgb()
+        }
+        // Compose dialog capture requires API 28. A real display screenshot works on API 24.
+        compose.waitForIdle()
+        val bounds = node.fetchSemanticsNode().boundsInWindow
+        val screenshot = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+        val location = IntArray(2)
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val type = Class.forName("android.view.WindowManagerGlobal")
+            val manager = type.getDeclaredMethod("getInstance").invoke(null)
+            @Suppress("UNCHECKED_CAST")
+            val views = type.getDeclaredField("mViews").apply { isAccessible = true }.get(manager) as List<android.view.View>
+            views.last { it.isShown && it !== host.window.decorView }.getLocationOnScreen(location)
+        }
+        return try { screenshot.getPixel(location[0] + bounds.center.x.toInt(), location[1] + bounds.center.y.toInt()) }
+            finally { screenshot.recycle() }
     }
 
     @Test fun portraitSliderChangesTheActualPreviewPixels() {
@@ -104,7 +121,7 @@ class ArtworkCropUiTest {
     }
     @Test fun missingOrDisabledBackgroundHasNoEditableSliders() {
         compose.runOnIdle { source.value = null }
-        compose.onNodeWithText("Kein Hintergrundbild verfügbar.").assertIsDisplayed()
+        compose.onNodeWithText("Kein Hintergrundbild verfügbar.").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("artwork_crop_x").assertIsNotEnabled()
         compose.onNodeWithTag("artwork_crop_y").assertIsNotEnabled()
     }

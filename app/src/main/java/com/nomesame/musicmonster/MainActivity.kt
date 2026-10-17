@@ -9,6 +9,12 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.IntentSenderRequest
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.Lifecycle
+import kotlinx.coroutines.launch
+import com.nomesame.musicmonster.state.RenamePermission
 import androidx.activity.viewModels
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.foundation.layout.Box
@@ -38,8 +44,12 @@ class MainActivity : ComponentActivity() {
             // Give the previous folder's grant back before taking a new one:
             // persisted URI permissions are capped per app (128 below API 30),
             // and re-picking a folder otherwise leaks one grant every time.
-            viewModel.libraryTreeUri()?.takeIf { it != uri }?.let(::releaseReadPermission)
-            takeReadPermission(uri)
+            viewModel.libraryTreeUri()?.takeIf { it != uri }?.let { old ->
+                runCatching { contentResolver.releasePersistableUriPermission(old,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
+                    .onFailure { releaseReadPermission(old) }
+            }
+            takeFolderPermission(uri)
             viewModel.saveLibraryTreeUri(uri)
             viewModel.loadSongs()
             viewModel.startMusicService()
@@ -52,6 +62,12 @@ class MainActivity : ComponentActivity() {
      * throw SecurityException here. The folder still works for this session, so
      * a failed persist must not take the app down.
      */
+    private fun takeFolderPermission(uri: Uri) {
+        runCatching { contentResolver.takePersistableUriPermission(uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
+            .onFailure { takeReadPermission(uri) }
+    }
+
     private fun takeReadPermission(uri: Uri) {
         // Only read/write modes are accepted here. PERSISTABLE describes the
         // offered picker grant; passing it to this method is rejected by Android.
@@ -119,12 +135,52 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val extensionResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        viewModel.extensions.result(it.resultCode, it.data)
+    }
+    private val extensionPackages = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: Intent?) { viewModel.extensions.refresh() }
+    }
+
+    private val renameConsent = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+        viewModel.songRename.permissionResult(it.resultCode == RESULT_OK)
+    }
+    private val renameLegacyPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        viewModel.songRename.permissionResult(it)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must run before super.onCreate so the system shows our branded splash
         // theme (dark, matching the app) instead of a white flash.
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.songRename.permissions.collect { permission ->
+                    runCatching {
+                        when (permission) {
+                            is RenamePermission.System -> renameConsent.launch(IntentSenderRequest.Builder(permission.sender).build())
+                            RenamePermission.LegacyStorage -> renameLegacyPermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                        }
+                    }.onFailure { viewModel.songRename.permissionResult(false) }
+                }
+            }
+        }
 
+        androidx.core.content.ContextCompat.registerReceiver(this, extensionPackages,
+            android.content.IntentFilter().apply {
+                addAction(Intent.ACTION_PACKAGE_ADDED); addAction(Intent.ACTION_PACKAGE_REMOVED)
+                addAction(Intent.ACTION_PACKAGE_CHANGED); addAction(Intent.ACTION_PACKAGE_REPLACED)
+                addDataScheme("package")
+            }, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.extensions.requests.collect { request ->
+                    runCatching { if (viewModel.extensions.canLaunch(request)) extensionResult.launch(request) }
+                        .onFailure { viewModel.extensions.launchFailed() }
+                }
+            }
+        }
         requestAudioPermissionIfNeeded()
         loadLibraryIfPossible()
         requestNotificationPermissionIfNeeded()
@@ -160,11 +216,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        viewModel.extensions.refresh()
         // Load only — never re-ask. Asking here fired the permission request on
         // every single resume; from the second denial on, API 30+ auto-denies
         // without showing anything, so the user was stuck with an empty library
         // and no way to see why.
         loadLibraryIfPossible()
+    }
+
+    override fun onDestroy() {
+        unregisterReceiver(extensionPackages)
+        super.onDestroy()
     }
 
     private val audioPermission: String

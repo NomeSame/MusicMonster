@@ -7,6 +7,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import com.nomesame.musicmonster.R
 import com.nomesame.musicmonster.ui.components.ControlLabel
+import com.nomesame.musicmonster.ui.components.RenameSongDialog
 import com.nomesame.musicmonster.ui.components.SongSelectionBar
 import com.nomesame.musicmonster.ui.components.SelectPlaylistDialog
 import com.nomesame.musicmonster.ui.components.CreatePlaylistDialog
@@ -107,6 +108,7 @@ fun PlayerScreen(
     val positionMs = playbackConnection.position.collectAsState().value
     val effectivePosition = if (isScrubbing) scrubPositionMs else positionMs
     val selection by viewModel.songSelection.state.collectAsState()
+    val renameForm by viewModel.songRename.state.collectAsState()
     val targetPlaylist = playlists.firstOrNull { it.id == selection.targetPlaylistId }
     val targetEntries = targetPlaylist?.songIds?.toList().orEmpty()
     val existingCounts = remember(targetEntries) { targetEntries.groupingBy { it }.eachCount() }
@@ -240,7 +242,8 @@ fun PlayerScreen(
                             if (selection.targetPlaylistId != null) expanded = true
                             viewModel.songSelection.finish()
                         },
-                        targetPlaylistName = targetPlaylist?.name
+                        targetPlaylistName = targetPlaylist?.name,
+                        onRename = { songs.firstOrNull { it.id in selection.ids }?.let(viewModel.songRename::open) }
                     )
                 } else {
                     Row(
@@ -256,6 +259,15 @@ fun PlayerScreen(
                             modifier = Modifier.clickable(onClick = onPickFolder))
                     }
                 }
+            }
+
+            if (!selection.active) {
+                val extensionActions by viewModel.extensions.actions.collectAsState()
+                val extensionBusy by viewModel.extensions.busy.collectAsState()
+                val extensionFailed by viewModel.extensions.failed.collectAsState()
+                com.nomesame.musicmonster.ui.components.ExtensionActions(extensionActions, extensionBusy, extensionFailed,
+                    { action -> viewModel.extensions.start(action, viewModel.libraryTreeUri(), appLanguage.tag) },
+                    viewModel.extensions::cancel, viewModel.extensions::dismissError)
             }
 
             Box(
@@ -592,6 +604,10 @@ fun PlayerScreen(
                 )
             }
 
+            renameForm?.let { form ->
+                RenameSongDialog(form, viewModel.songRename::edit, { viewModel.songRename.submit() },
+                    viewModel.songRename::dismiss, onPickFolder)
+            }
             if (showAccentPicker) {
                 AccentPickerDialog(
                     current = appColors.accent,

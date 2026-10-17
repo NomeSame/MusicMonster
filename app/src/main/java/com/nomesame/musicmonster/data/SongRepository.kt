@@ -20,6 +20,12 @@ class SongRepository(
 ) {
 
     fun load(): List<Song> {
+        val loaded = loadFiles()
+        SongReferenceRepository(prefs).recover(loaded)
+        return loaded
+    }
+
+    private fun loadFiles(): List<Song> {
         val treeUri = runCatching {
             prefs.stringOr("library_tree_uri", null)?.let { Uri.parse(it) }
         }.getOrNull()
@@ -30,6 +36,7 @@ class SongRepository(
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.DISPLAY_NAME,
             MediaStore.Audio.Media.DURATION
         )
         val selection = "${MediaStore.Audio.Media.IS_MUSIC}!=0"
@@ -41,11 +48,13 @@ class SongRepository(
             context.contentResolver.query(collection, projection, selection, null, sortOrder)?.use { c ->
                 val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                 val titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                val nameCol = c.getColumnIndex(MediaStore.Audio.Media.DISPLAY_NAME)
                 val durationCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
 
                 while (c.moveToNext()) {
                     val idLong = c.getLong(idCol)
                     val title = c.getString(titleCol) ?: "Unknown"
+                    val fileName = if (nameCol >= 0) c.getString(nameCol) else null
                     val durationMs = c.getLong(durationCol)
 
                     val contentUri = ContentUris.withAppendedId(collection, idLong)
@@ -53,9 +62,10 @@ class SongRepository(
                     list.add(
                         Song(
                             id = idLong.toString(),
-                            title = title,
+                            title = fileName?.substringBeforeLast('.') ?: title,
                             uri = contentUri,
-                            durationMs = durationMs.coerceAtLeast(0L)
+                            durationMs = durationMs.coerceAtLeast(0L),
+                            fileName = fileName,
                         )
                     )
                 }
@@ -90,7 +100,8 @@ class SongRepository(
                 } else {
                     val name = doc.name ?: "Unknown"
                     if (MusicLogic.isAudioFile(name, doc.type)) {
-                        list.add(Song(doc.uri.toString(), name.substringBeforeLast('.'), doc.uri, 0L))
+                        list.add(Song(doc.uri.toString(), name.substringBeforeLast('.'), doc.uri, 0L,
+                            fileName = name, parentUri = doc.parentFile?.uri))
                     }
                 }
             } catch (_: Exception) {

@@ -23,6 +23,9 @@ data class Song(
     /**
      * Track duration in milliseconds, as reported by MediaStore.
      */
-    val durationMs: Long
+    val durationMs: Long,
+    val fileName: String? = null,
+    /** Parent SAF document, needed to reject sibling filename collisions. */
+    val parentUri: Uri? = null,
 )
 

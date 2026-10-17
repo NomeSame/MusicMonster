@@ -147,7 +147,9 @@ class MusicService : Service() {
         const val PREF_LAST_POSITION = "last_position"
         const val PREF_SHUFFLE_ENABLED = "shuffle_enabled"
         const val ACTION_TOGGLE_SHUFFLE = "com.nomesame.musicmonster.action.TOGGLE_SHUFFLE"
+        const val ACTION_REFRESH_CATALOG = "com.nomesame.musicmonster.action.REFRESH_CATALOG"
         const val ACTION_RELOAD_LIBRARY = "com.nomesame.musicmonster.action.RELOAD_LIBRARY"
+        const val ACTION_RENAME_SONG = "com.nomesame.musicmonster.action.RENAME_SONG"
         const val ACTION_SET_SLEEP_TIMER = "com.nomesame.musicmonster.action.SET_SLEEP_TIMER"
         const val ACTION_CANCEL_SLEEP_TIMER = "com.nomesame.musicmonster.action.CANCEL_SLEEP_TIMER"
         const val ACTION_PLAY_PLAYLIST = "com.nomesame.musicmonster.action.PLAY_PLAYLIST"
@@ -165,7 +167,7 @@ class MusicService : Service() {
         var sessionToken: MediaSessionCompat.Token? = null
 
         /** Commands that are meaningless until the library scan has finished. */
-        private val NEEDS_LIBRARY = setOf(ACTION_PLAY_PLAYLIST, ACTION_RELOAD_LIBRARY)
+        private val NEEDS_LIBRARY = setOf(ACTION_PLAY_PLAYLIST, ACTION_RELOAD_LIBRARY, ACTION_RENAME_SONG, ACTION_REFRESH_CATALOG)
     }
 
     private fun updateNotificationChannel() {
@@ -367,24 +369,25 @@ class MusicService : Service() {
      * scan is in flight, so a play request that arrives during startup is
      * executed afterwards instead of silently dropped.
      */
-    private fun loadLibraryAsync(restoreLastSession: Boolean) {
+    private fun loadLibraryAsync(restoreLastSession: Boolean, catalogOnly: Boolean = false) {
         loadExecutor.execute {
             val loaded = runCatching { loadDevicePlaylist() }.getOrElse {
                 // A misbehaving DocumentsProvider can throw anything at all.
                 // An unreadable library must not take the service down.
                 Triple(emptyList(), emptyList(), emptyMap())
             }
-            positionHandler.post { applyLibrary(loaded, restoreLastSession) }
+            positionHandler.post { applyLibrary(loaded, restoreLastSession, catalogOnly) }
         }
     }
 
     private fun applyLibrary(
         loaded: Triple<List<MediaItem>, List<String>, Map<String, Long>>,
         restoreLastSession: Boolean,
+        catalogOnly: Boolean = false,
     ) {
         if (playerReleased) return
         val (items, itemTitles, _) = loaded
-        titles = itemTitles
+        if (!catalogOnly) titles = itemTitles
         libraryItems = items.associateBy { it.mediaId }
         libraryTitles = items.zip(itemTitles).associate { it.first.mediaId to it.second }
 
@@ -407,7 +410,7 @@ class MusicService : Service() {
                     player.seekTo(targetIndex, lastPos.coerceAtLeast(0L))
                 }
             }
-        } else {
+        } else if (!catalogOnly) {
             applyReloadedLibrary(items)
         }
 
@@ -429,6 +432,12 @@ class MusicService : Service() {
      * library was still loading.
      */
     private fun startPlayback(mediaId: String?) {
+        // A catalog refresh never changes a live queue. A later explicit play can select a new item.
+        if (mediaId != null && (0 until player.mediaItemCount).none { player.getMediaItemAt(it).mediaId == mediaId }) {
+            val selected = libraryItems[mediaId] ?: return
+            player.addMediaItem(selected)
+            titles = titles + (libraryTitles[mediaId] ?: mediaId)
+        }
         if (player.mediaItemCount == 0) return
         if (mediaId != null) {
             val targetIndex = (0 until player.mediaItemCount)
@@ -488,6 +497,24 @@ class MusicService : Service() {
     }
 
     private fun handleCommand(intent: Intent?): Int {
+        if (intent?.action == ACTION_RENAME_SONG) {
+            val oldId = intent.getStringExtra("rename_old_id") ?: return START_STICKY
+            val id = intent.getStringExtra("rename_new_id") ?: return START_STICKY
+            val uri = intent.getStringExtra("rename_uri")?.let(android.net.Uri::parse) ?: return START_STICKY
+            val title = intent.getStringExtra("rename_title") ?: return START_STICKY
+            titles = (0 until player.mediaItemCount).map { index ->
+                if (player.getMediaItemAt(index).mediaId == oldId) title else titles.getOrElse(index) { "" }
+            }
+            val oldItem = libraryItems[oldId]
+            libraryItems = libraryItems - oldId + (id to (oldItem ?: MediaItem.Builder().build())
+                .buildUpon().setMediaId(id).setUri(uri).build())
+            libraryTitles = libraryTitles - oldId + (id to title)
+            com.nomesame.musicmonster.playback.SongQueueRenamer.apply(player, oldId, Song(id, title, uri, 0))
+            updateSessionMetadata()
+            setPlaybackState(player.isPlaying)
+            updateNotification(player.isPlaying)
+            return START_STICKY
+        }
         if (intent?.action == ACTION_TOGGLE_SHUFFLE) {
             val newMode = if (player.shuffleModeEnabled) {
                 PlaybackStateCompat.SHUFFLE_MODE_NONE
@@ -501,6 +528,11 @@ class MusicService : Service() {
             session.setShuffleMode(newMode)
             setPlaybackState(player.isPlaying)
             updateNotification(player.isPlaying)
+            return START_STICKY
+        }
+        if (intent?.action == ACTION_REFRESH_CATALOG) {
+            libraryReady = false
+            loadLibraryAsync(restoreLastSession = false, catalogOnly = true)
             return START_STICKY
         }
         if (intent?.action == ACTION_RELOAD_LIBRARY) {

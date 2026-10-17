@@ -11,7 +11,12 @@
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <permission android:name="com.nomesame.musicmonster.permission.BIND_PLUGIN" android:protectionLevel="signature" />
+    <uses-permission android:name="com.nomesame.musicmonster.permission.BIND_PLUGIN" />
+    <queries><intent><action android:name="com.nomesame.musicmonster.extension.PRODUCE_DOCUMENT_V1" /></intent></queries>
 
     <application
         android:allowBackup="true"

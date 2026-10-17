@@ -18,6 +18,9 @@ class SongSelectionController(private val savedState: SavedStateHandle) {
     fun toggleAll(available: Collection<String>) = update(mutableState.value.toggleAll(available))
     fun retain(available: Collection<String>) = update(mutableState.value.retain(available))
     fun finish() = update(SongSelection())
+    fun remap(oldId: String, newId: String) = update(mutableState.value.copy(
+        ids = mutableState.value.ids.map { if (it == oldId) newId else it }.toSet(),
+    ))
 
     private fun update(value: SongSelection) {
         savedState[ACTIVE] = value.active

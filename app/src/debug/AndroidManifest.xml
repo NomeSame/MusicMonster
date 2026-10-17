@@ -1,7 +1,8 @@
-<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Only the debug test harness writes its own WAV fixture into MediaStore
-         on API 24-28. The production release does not request write access. -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28" />
+ <application>
+  <activity android:name=".fixtures.ExtensionProbeActivity" android:exported="true" />
+  <provider android:name=".fixtures.RenameDocumentsProvider" android:authorities="${applicationId}.rename-fixture" android:exported="true" android:permission="android.permission.MANAGE_DOCUMENTS" android:grantUriPermissions="true">
+   <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER" /></intent-filter>
+  </provider>
+ </application>
 </manifest>

@@ -72,8 +72,33 @@ class MainViewModel(application: Application, savedState: SavedStateHandle = Sav
         }
     }
 
+    val extensions = com.nomesame.musicmonster.state.ExtensionController(application, viewModelScope) {
+        loadSongs()
+        if (MusicService.sessionToken != null) startPlaybackService(Intent(app, MusicService::class.java)
+            .setAction(MusicService.ACTION_REFRESH_CATALOG))
+    }
+
     val equalizerController = EqualizerController()
     val playbackConnection = PlaybackConnection(application)
+    val songRename = com.nomesame.musicmonster.state.SongRenameController(
+        com.nomesame.musicmonster.data.SongRenameRepository(application),
+        com.nomesame.musicmonster.data.SongReferenceRepository(prefs),
+        viewModelScope, ::onSongRenamed,
+    )
+
+    private fun onSongRenamed(old: Song, renamed: Song) {
+        playlists.forEach { playlist ->
+            for (index in playlist.songIds.indices) if (playlist.songIds[index] == old.id) playlist.songIds[index] = renamed.id
+        }
+        songSelection.remap(old.id, renamed.id)
+        _songs.value = MusicLogic.sortNatural(_songs.value.map { if (it.id == old.id) renamed else it })
+        if (MusicService.sessionToken != null) {
+            startPlaybackService(Intent(app, MusicService::class.java)
+                .setAction(MusicService.ACTION_RENAME_SONG)
+                .putExtra("rename_old_id", old.id).putExtra("rename_new_id", renamed.id)
+                .putExtra("rename_uri", renamed.uri.toString()).putExtra("rename_title", renamed.title))
+        }
+    }
 
     private val _songs = MutableStateFlow<List<Song>>(emptyList())
     val songs: StateFlow<List<Song>> = _songs.asStateFlow()
@@ -206,6 +231,7 @@ class MainViewModel(application: Application, savedState: SavedStateHandle = Sav
     fun loadSongs() {
         viewModelScope.launch {
             applyLibrarySongs(withContext(Dispatchers.IO) { songRepository.load() })
+            loadPlaylists() // Recovery may have replaced document IDs during the scan.
         }
     }
 

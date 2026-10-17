@@ -100,4 +100,16 @@
     <string name="card_crop_vertical">Vertikale Position</string>
     <string name="card_crop_center">Zentrieren</string>
     <string name="card_crop_zoom">Zoom: %1$.1f×</string>
+    <string name="rename_song">Datei umbenennen</string>
+    <string name="rename_description">Ändert den Dateinamen des Songs dauerhaft. Audioinhalt und Dateiendung bleiben erhalten.</string>
+    <string name="rename_filename">Dateiname</string>
+    <string name="rename_invalid">Gib einen gültigen Dateinamen ohne Pfadtrenner oder Sonderzeichen ein.</string>
+    <string name="rename_exists">Eine Datei mit diesem Namen existiert bereits.</string>
+    <string name="rename_read_only">Kein Schreibzugriff. Wähle den Ordner erneut oder erlaube den Zugriff in Android.</string>
+    <string name="rename_missing">Die ursprüngliche Datei ist nicht mehr verfügbar. Lade die Bibliothek neu.</string>
+    <string name="rename_references">Playlist-Verweise konnten nicht gespeichert werden. Starte die App zur Wiederherstellung neu.</string>
+    <string name="rename_failed">Die Datei konnte nicht umbenannt werden.</string>
+    <string name="rename_choose_folder">Ordner erneut wählen</string>
+    <string name="extension_discard">Ausstehende Erweiterungsausgabe verwerfen</string>
+    <string name="extension_failed">Die Erweiterung konnte keine Audiodatei speichern. Bitte einen beschreibbaren Bibliotheksordner auswählen und erneut versuchen.</string>
 </resources>

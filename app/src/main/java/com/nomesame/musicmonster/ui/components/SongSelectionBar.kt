@@ -25,7 +25,8 @@ fun SongSelectionBar(
     onCreate: () -> Unit,
     onToggleAll: () -> Unit,
     onClose: () -> Unit,
-    targetPlaylistName: String? = null
+    targetPlaylistName: String? = null,
+    onRename: (() -> Unit)? = null
 ) {
     val colors = LocalAppColors.current
     Surface(
@@ -38,6 +39,12 @@ fun SongSelectionBar(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onClose, modifier = Modifier.testTag("selection_close")) {
                     Icon(Icons.Default.Close, stringResource(R.string.exit_selection), tint = colors.accent)
+                }
+                if (onRename != null) {
+                    TextButton(onClick = onRename, enabled = count == 1,
+                        modifier = Modifier.testTag("selection_rename")) {
+                        Text(stringResource(R.string.rename_song))
+                    }
                 }
                 Column(Modifier.weight(1f)) {
                     if (targetPlaylistName != null) {

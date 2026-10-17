@@ -116,6 +116,11 @@ class PlaybackSessionInstrumentedTest {
             put(MediaStore.Audio.Media.IS_MUSIC, 1)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 put(MediaStore.Audio.Media.RELATIVE_PATH, "Music/MonsterProbe")
+            } else {
+                val file = java.io.File(android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_MUSIC), name)
+                file.parentFile!!.mkdirs()
+                put(MediaStore.Audio.Media.DATA, file.absolutePath)
             }
         }
         val uri = context.contentResolver

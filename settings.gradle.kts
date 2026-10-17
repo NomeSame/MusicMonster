@@ -20,5 +20,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "MusicBox"
-include(":app")
+include(":app", ":extension-api")
  

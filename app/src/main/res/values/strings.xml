@@ -100,4 +100,16 @@
     <string name="card_crop_vertical">Vertical position</string>
     <string name="card_crop_center">Center</string>
     <string name="card_crop_zoom">Zoom: %1$.1f×</string>
+    <string name="rename_song">Rename file</string>
+    <string name="rename_description">Permanently changes the song’s filename. The audio content and file extension stay the same.</string>
+    <string name="rename_filename">Filename</string>
+    <string name="rename_invalid">Enter a valid filename without path separators or special characters.</string>
+    <string name="rename_exists">A file with that name already exists.</string>
+    <string name="rename_read_only">No write access. Choose the folder again or allow access in Android.</string>
+    <string name="rename_missing">The original file is no longer available. Refresh the library.</string>
+    <string name="rename_references">Playlist references could not be saved. Restart the app to recover the rename.</string>
+    <string name="rename_failed">The file could not be renamed.</string>
+    <string name="rename_choose_folder">Choose folder again</string>
+    <string name="extension_discard">Discard pending extension output</string>
+    <string name="extension_failed">The extension could not save an audio file. Select a writable library folder and try again.</string>
 </resources>

@@ -45,6 +45,12 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            // Opt-in USB validation: install beside the user's app, with isolated data and providers.
+            if (providers.gradleProperty("isolatedDeviceTest").orNull == "true") {
+                applicationIdSuffix = ".validation"
+            }
+        }
         release {
             signingConfig =
                 if (keystorePropertiesFile.exists()) signingConfigs.getByName("release") else null
@@ -83,6 +89,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":extension-api"))
 
     implementation("androidx.compose.material:material-icons-extended")
     implementation(libs.androidx.core.ktx)
@@ -105,6 +112,7 @@ dependencies {
     implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0")
     testImplementation(libs.junit)
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     // Robolectric runs Android framework code (Uri, SharedPreferences,
     // ContentResolver, ...) on the JVM, so unit tests can exercise repository
     // logic and construct real Song fixtures without a device/emulator.

@@ -46,7 +46,7 @@ class MediaCardPlaybackContinuityTest {
         ?.let { it.getPixel(it.width / 2, it.height / 2) }
 
     @Test fun artworkRecreationPreservesPlayingSessionPositionAndForegroundRestoration() {
-        ctx.startForegroundService(Intent(ctx, MusicService::class.java))
+        androidx.core.content.ContextCompat.startForegroundService(ctx, Intent(ctx, MusicService::class.java))
         await { MusicService.sessionToken != null }
         val threadClass = Class.forName("android.app.ActivityThread")
         val thread = threadClass.getDeclaredMethod("currentActivityThread").invoke(null)

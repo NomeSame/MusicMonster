@@ -20,6 +20,9 @@ images.jpg
 app/build/
 *.apk
 
+# Separate private repository; never stage it in the public host.
+/private-plugin/
+
 # Gradle wrapper cache
 gradle-cache/
 
