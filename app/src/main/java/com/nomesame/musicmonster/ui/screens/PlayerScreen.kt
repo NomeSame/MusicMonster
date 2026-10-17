@@ -92,7 +92,8 @@ fun PlayerScreen(
     onExport: () -> Unit,
     onImport: () -> Unit,
     onAccentChange: (Color) -> Unit,
-    onPickBackground: () -> Unit
+    onPickBackground: () -> Unit,
+    onShowVideo: () -> Unit = {},
 ) {
     val playbackConnection = viewModel.playbackConnection
     val equalizerController = viewModel.equalizerController
@@ -102,7 +103,10 @@ fun PlayerScreen(
     val currentId = playbackConnection.nowPlayingId.collectAsState().value
     val playing = playbackConnection.isPlaying.collectAsState().value
     val shuffled = playbackConnection.isShuffled.collectAsState().value
-    var expanded by rememberSaveable { mutableStateOf(false) }
+    val currentVideo = songs.firstOrNull { it.id == currentId }?.let {
+        (it.fileName ?: it.uri.lastPathSegment.orEmpty()).endsWith(".mp4", ignoreCase = true)
+    } == true
+    var expanded by remember { mutableStateOf(false) }
     var isScrubbing by rememberSaveable { mutableStateOf(false) }
     var scrubPositionMs by rememberSaveable { mutableStateOf(0L) }
     val durationMs = playbackConnection.duration.collectAsState().value
@@ -221,7 +225,7 @@ fun PlayerScreen(
                     val extensionFailed by viewModel.extensions.failed.collectAsState()
                     com.nomesame.musicmonster.ui.components.ExtensionActions(extensionActions, extensionBusy, extensionFailed,
                         { action -> viewModel.extensions.start(action, viewModel.libraryTreeUri(), appLanguage.tag, appColors.accent.toArgb()) },
-                        viewModel.extensions::cancel, viewModel.extensions::dismissError)
+                        viewModel.extensions::dismissError)
                 }
                 IconButton(onClick = { showAccentPicker = true }) {
                     Icon(
@@ -403,7 +407,7 @@ fun PlayerScreen(
                 // which are only drawn in the strip it uncovers.
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxSize().testTag("song_list_foreground")
                         .graphicsLayer { translationY = pullProgress * size.height }
                 ) {
                     if (songs.isEmpty()) {
@@ -423,7 +427,7 @@ fun PlayerScreen(
                             itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
                                 SongRow(
                                     title = song.title,
-                                    durationLabel = MusicLogic.formatTime(song.durationMs),
+                                    durationLabel = MusicLogic.formatTrackDuration(song.durationMs),
                                     isCurrent = song.id == currentId,
                                     textWarm = textWarm,
                                     textMuted = textMuted,
@@ -499,6 +503,12 @@ fun PlayerScreen(
                         }
                     }
 
+                    if (currentVideo) {
+                        androidx.compose.material3.TextButton(onClick = onShowVideo,
+                            modifier = Modifier.testTag("show_video")) {
+                            Text(stringResource(R.string.video_show), color = iconGlow)
+                        }
+                    }
                     if (durationMs > 0L) {
                         Slider(
                             value = (effectivePosition / durationMs.toFloat()).coerceIn(0f, 1f),

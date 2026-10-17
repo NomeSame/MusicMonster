@@ -54,7 +54,7 @@ class AppLanguageUiTest {
             host.setContent {
                 AppLanguageContent(vm.appLanguage.collectAsState().value) {
                     MyApplicationTheme(accent = Color(0xFFE58B3C)) {
-                        PlayerScreen(vm, {}, {}, {}, {}, {})
+                        PlayerScreen(vm, {}, {}, {}, {}, {}, {})
                     }
                 }
             }

@@ -103,6 +103,7 @@ dependencies {
     // Media3 (successor of the deprecated ExoPlayer 2.x) for media playback
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-common:1.4.1")
+    implementation("androidx.media3:media3-ui:1.4.1")
     // MediaSessionCompat for lock‑screen controls and background playback
     implementation("androidx.media:media:1.7.1")
     implementation("androidx.documentfile:documentfile:1.0.1")

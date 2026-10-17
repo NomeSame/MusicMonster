@@ -47,7 +47,7 @@ class SongSelectionUiTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             host.setContent {
                 MyApplicationTheme(accent = Color(0xFFE58B3C)) {
-                    PlayerScreen(vm, {}, {}, {}, {}, {})
+                    PlayerScreen(vm, {}, {}, {}, {}, {}, {})
                 }
             }
         }

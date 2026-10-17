@@ -21,7 +21,7 @@ class ExtensionRegistry(private val context: Context,
                 if (info.packageName != context.packageName || !info.enabled || !info.applicationInfo.enabled ||
                     info.permission != Contract.PERMISSION ||
                     info.metaData?.get(Contract.META_VERSION) != Contract.VERSION ||
-                    info.metaData?.getString(Contract.META_OUTPUT) != Contract.AUDIO ||
+                    info.metaData?.getString(Contract.META_OUTPUT) !in setOf(Contract.AUDIO, Contract.MEDIA) ||
                     pm.checkSignatures(context.packageName, info.packageName) != PackageManager.SIGNATURE_MATCH
                 ) return@mapNotNull null
                 val label = info.loadLabel(pm).toString().trim()

@@ -30,6 +30,7 @@
 
         <activity
             android:name=".MainActivity"
+            android:launchMode="singleTask"
             android:exported="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|density|fontScale"
             android:theme="@style/Theme.MusicMonster.Splash">
@@ -38,6 +39,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".VideoActivity"
+            android:exported="false"
+            android:supportsPictureInPicture="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|density|fontScale"
+            android:theme="@style/Theme.MyApplication" />
 
         <!-- Foreground service for background playback.
              The ACTION_MEDIA_BUTTON filter is required so that

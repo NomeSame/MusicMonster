@@ -36,6 +36,14 @@ import com.nomesame.musicmonster.ui.theme.MyApplicationTheme
 class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
+    private val playerEntry = androidx.compose.runtime.mutableIntStateOf(0)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        viewModel.extensions.cancel()
+        playerEntry.intValue++ // Explicitly opening the app returns to the library/player.
+    }
 
     private val selectFolderLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -155,6 +163,7 @@ class MainActivity : ComponentActivity() {
         // theme (dark, matching the app) instead of a white flash.
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) viewModel.extensions.cancel() // Discard an abandoned output from a previous task.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.songRename.permissions.collect { permission ->
@@ -203,14 +212,17 @@ class MainActivity : ComponentActivity() {
                     val controllerReady by viewModel.playbackConnection.isReady.collectAsState()
                     val playbackUnavailable by viewModel.playbackUnavailable.collectAsState()
                     if (controllerReady || playbackUnavailable) {
-                        PlayerScreen(
-                            viewModel = viewModel,
-                            onPickFolder = { selectFolderLauncher.launch(null) },
-                            onExport = { exportPlaylistsLauncher.launch("musicbox_playlists.json") },
-                            onImport = { importPlaylistsLauncher.launch(arrayOf("application/json")) },
-                            onAccentChange = { viewModel.setAccentColor(it) },
-                            onPickBackground = { pickBackgroundLauncher.launch(arrayOf("image/*")) }
-                        )
+                        androidx.compose.runtime.key(playerEntry.intValue) {
+                            PlayerScreen(
+                                viewModel = viewModel,
+                                onPickFolder = { selectFolderLauncher.launch(null) },
+                                onExport = { exportPlaylistsLauncher.launch("musicbox_playlists.json") },
+                                onImport = { importPlaylistsLauncher.launch(arrayOf("application/json")) },
+                                onAccentChange = { viewModel.setAccentColor(it) },
+                                onPickBackground = { pickBackgroundLauncher.launch(arrayOf("image/*")) },
+                                onShowVideo = { startActivity(Intent(this@MainActivity, VideoActivity::class.java)) }
+                            )
+                        }
                     } else {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()

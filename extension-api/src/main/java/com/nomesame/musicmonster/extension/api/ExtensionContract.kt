@@ -4,7 +4,7 @@ package com.nomesame.musicmonster.extension.api
  * Optional signed document producers. The host supplies exactly one writable document
  * in Intent.data/ClipData, with a temporary WRITE grant, never a directory grant.
  * The extension owns its UI and processing. RESULT_OK echoes version/request and
- * supplies a safe audio filename after closing the output. Cancellation returns no result.
+ * supplies a safe playable-media filename after closing the output. Cancellation returns no result.
  * Existing v1 APKs remain usable across host updates; incompatible versions stay hidden.
  */
 object ExtensionContract {
@@ -14,6 +14,8 @@ object ExtensionContract {
     const val META_VERSION = "com.nomesame.musicmonster.extension.VERSION"
     const val META_OUTPUT = "com.nomesame.musicmonster.extension.OUTPUT"
     const val AUDIO = "audio"
+    // Additive capability: a producer may return audio or MP4 video.
+    const val MEDIA = "media"
     const val EXTRA_VERSION = "extension_version"
     const val EXTRA_REQUEST = "extension_request"
     const val EXTRA_NAME = "extension_name"

@@ -636,7 +636,12 @@ class MusicService : Service() {
         super.onDestroy()
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    /** Local, non-exported UI connection; it never creates a second playback instance. */
+    inner class VideoBinder : android.os.Binder() {
+        fun playbackPlayer(): Player? = if (playerReleased) null else player
+    }
+    override fun onBind(intent: Intent?): IBinder? =
+        if (intent?.action == "com.nomesame.musicmonster.LOCAL_VIDEO") VideoBinder() else null
 
     // Share the exact same provider handling, filtering and ordering as the UI.
     private fun loadDevicePlaylist(): Triple<List<MediaItem>, List<String>, Map<String, Long>> {

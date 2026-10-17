@@ -32,7 +32,8 @@ class MusicBoundaryTest {
     @Test fun audioMimeTypeIsCaseInsensitiveAndToleratesWhitespace() {
         assertTrue(MusicLogic.isAudioFile("track", "Audio/FLAC"))
         assertTrue(MusicLogic.isAudioFile("track", " audio/mpeg "))
-        assertFalse(MusicLogic.isAudioFile("movie.mp4", "video/mp4"))
+        assertTrue(MusicLogic.isAudioFile("movie.mp4", "video/mp4"))
+        assertFalse(MusicLogic.isAudioFile("movie.webm", "video/webm"))
     }
     @Test fun samplingRoundsUpInsteadOfLettingImageExceedTarget() {
         assertEquals(4, computeInSampleSize(513, 200, 256))

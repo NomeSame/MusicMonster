@@ -23,7 +23,7 @@ class ExtensionUiTest {
         var busy by mutableStateOf(false)
         var calls = 0
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            host.setContent { MyApplicationTheme { ExtensionActions(actions, busy, false, { calls++ }, {}, {}) } }
+            host.setContent { MyApplicationTheme { ExtensionActions(actions, busy, false, { calls++ }, {}) } }
         }
         compose.onNodeWithTag("extension_action").assertDoesNotExist()
         compose.runOnIdle { actions = listOf(ExtensionAction(ComponentName("fixture", "Producer"), "Create audio")) }
@@ -31,6 +31,8 @@ class ExtensionUiTest {
         compose.onNodeWithText("Create audio").assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, calls); busy = true }
         compose.onNodeWithTag("extension_action").assertIsNotEnabled()
+        compose.onAllNodes(hasClickAction()).assertCountEquals(1) // No redundant header close/cancel.
+
         compose.runOnIdle { actions = emptyList(); busy = false }
         compose.onNodeWithTag("extension_action").assertDoesNotExist()
     }
@@ -41,14 +43,14 @@ class ExtensionUiTest {
         val actions = com.nomesame.musicmonster.extensions.ExtensionRegistry(host).actions()
         assertEquals(expected, actions.any { it.component.packageName == pkg })
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            host.setContent { MyApplicationTheme { ExtensionActions(actions, false, false, {}, {}, {}) } }
+            host.setContent { MyApplicationTheme { ExtensionActions(actions, false, false, {}, {}) } }
         }
         compose.onAllNodesWithTag("extension_action").assertCountEquals(actions.size)
         if (!expected) compose.onNodeWithTag("extension_action").assertDoesNotExist()
     }
     @Test fun removedExtensionHasNoLeftoverCancelOrErrorUi() {
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            host.setContent { MyApplicationTheme { ExtensionActions(emptyList(), true, true, {}, {}, {}) } }
+            host.setContent { MyApplicationTheme { ExtensionActions(emptyList(), true, true, {}, {}) } }
         }
         compose.onAllNodes(hasClickAction()).assertCountEquals(0)
         compose.onNode(isDialog()).assertDoesNotExist()

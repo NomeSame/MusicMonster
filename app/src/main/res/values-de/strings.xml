@@ -118,4 +118,8 @@
     <string name="seek_backward">%1$d Sekunden zurück</string>
     <string name="seek_forward">%1$d Sekunden vor</string>
     <string name="seek_buttons_enabled">Sprungbuttons</string>
+    <string name="video_show">Video anzeigen</string>
+    <string name="video_close">Als Audio weiterhören</string>
+    <string name="video_shrink">Verkleinern</string>
+    <string name="video_pip_unavailable">Bild-in-Bild ist nicht verfügbar. Prüfe, ob es in den Android-Einstellungen erlaubt ist.</string>
 </resources>

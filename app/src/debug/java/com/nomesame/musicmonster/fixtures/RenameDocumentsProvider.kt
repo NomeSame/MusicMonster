@@ -25,7 +25,7 @@ class RenameDocumentsProvider : DocumentsProvider() {
   files.filter { it.exists() }.forEach { f -> addRow(columnNames.map { when(it) {
    Document.COLUMN_DOCUMENT_ID->if(f==folder) "root" else f.name
    Document.COLUMN_DISPLAY_NAME->f.name
-   Document.COLUMN_MIME_TYPE->if(f.isDirectory) Document.MIME_TYPE_DIR else if(f.extension == "partial") "application/octet-stream" else "audio/"+f.extension
+   Document.COLUMN_MIME_TYPE->if(f.isDirectory) Document.MIME_TYPE_DIR else if(f.extension == "partial") "application/octet-stream" else if(f.extension == "mp4") "video/mp4" else "audio/"+f.extension
    Document.COLUMN_FLAGS->if(f.name.startsWith("locked")) 0 else if(f.isDirectory) Document.FLAG_DIR_SUPPORTS_CREATE else Document.FLAG_SUPPORTS_RENAME or Document.FLAG_SUPPORTS_WRITE or Document.FLAG_SUPPORTS_DELETE
    Document.COLUMN_SIZE->f.length()
    else->null

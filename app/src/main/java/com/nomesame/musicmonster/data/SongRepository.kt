@@ -17,6 +17,7 @@ import com.nomesame.musicmonster.Song
 class SongRepository(
     private val context: Context,
     private val prefs: SharedPreferences,
+    private val durations: MediaDurationRepository = MediaDurationRepository(context),
 ) {
 
     fun load(): List<Song> {
@@ -64,7 +65,7 @@ class SongRepository(
                             id = idLong.toString(),
                             title = fileName?.substringBeforeLast('.') ?: title,
                             uri = contentUri,
-                            durationMs = durationMs.coerceAtLeast(0L),
+                            durationMs = if (durationMs > 0) durationMs else durations.read(contentUri),
                             fileName = fileName,
                         )
                     )
@@ -100,7 +101,8 @@ class SongRepository(
                 } else {
                     val name = doc.name ?: "Unknown"
                     if (MusicLogic.isAudioFile(name, doc.type)) {
-                        list.add(Song(doc.uri.toString(), name.substringBeforeLast('.'), doc.uri, 0L,
+                        val duration = durations.read(doc.uri, doc.length(), doc.lastModified())
+                        list.add(Song(doc.uri.toString(), name.substringBeforeLast('.'), doc.uri, duration,
                             fileName = name, parentUri = doc.parentFile?.uri))
                     }
                 }

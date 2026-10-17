@@ -74,4 +74,8 @@ class ExtensionRegistryTest {
         install().icon = android.R.drawable.ic_menu_save
         assertEquals(android.R.drawable.ic_menu_save, ExtensionRegistry(context).actions().single().iconResource)
     }
+    @Test fun acceptsGenericMediaProducerAlongsideLegacyAudio() {
+        install().metaData.putString(Contract.META_OUTPUT, Contract.MEDIA)
+        assertEquals(1, ExtensionRegistry(context).actions().size)
+    }
 }

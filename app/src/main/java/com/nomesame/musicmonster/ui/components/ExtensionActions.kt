@@ -3,7 +3,6 @@ package com.nomesame.musicmonster.ui.components
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -26,7 +25,7 @@ import com.nomesame.musicmonster.ui.theme.LocalAppColors
 /** The module supplies its icon and accessible label; the player only hosts toolbar actions. */
 @Composable
 fun ExtensionActions(actions: List<ExtensionAction>, busy: Boolean, failed: Boolean,
-    onAction: (ExtensionAction) -> Unit, onCancel: () -> Unit, onDismissError: () -> Unit) {
+    onAction: (ExtensionAction) -> Unit, onDismissError: () -> Unit) {
     if (actions.isEmpty()) return
     val context = LocalContext.current
     val colors = LocalAppColors.current
@@ -40,9 +39,6 @@ fun ExtensionActions(actions: List<ExtensionAction>, busy: Boolean, failed: Bool
                 if (icon != null) Icon(icon, action.label, Modifier.size(24.dp), tint = colors.accent)
                 else Icon(Icons.Default.Extension, action.label, tint = colors.accent)
             }
-        }
-        if (busy) IconButton(onClick = onCancel, modifier = Modifier.size(48.dp)) {
-            Icon(Icons.Default.Close, stringResource(R.string.extension_discard), tint = colors.accent)
         }
     }
     if (failed) AlertDialog(onDismissRequest = onDismissError, containerColor = colors.panel,

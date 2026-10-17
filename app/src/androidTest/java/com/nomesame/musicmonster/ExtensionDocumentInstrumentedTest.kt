@@ -39,4 +39,15 @@ class ExtensionDocumentInstrumentedTest {
         assertTrue(repo.discard(stage))
         assertFalse(File(context.cacheDir, "rename-fixtures/${DocumentsContract.getDocumentId(stage)}").exists())
     }
+    @Test fun mp4FinalizationKeepsBytesAndAppearsInTheFolderLibrary() {
+        val stage = repo.create(tree); created += stage
+        val bytes = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().context.assets
+            .open("owned-video.mp4").use { it.readBytes() }
+        context.contentResolver.openOutputStream(stage)!!.use { it.write(bytes) }
+        val completed = repo.complete(tree, stage, "video-${UUID.randomUUID()}.mp4"); created += completed
+        assertEquals("video/mp4", context.contentResolver.getType(completed))
+        assertArrayEquals(bytes, context.contentResolver.openInputStream(completed)!!.use { it.readBytes() })
+        prefs.edit().putString("library_tree_uri", tree.toString()).commit()
+        assertTrue(SongRepository(context, prefs).load().any { it.uri == completed && it.fileName!!.endsWith(".mp4") })
+    }
 }

@@ -106,7 +106,11 @@ object MusicLogic {
         return resolved.map { it.third } to startIndex
     }
 
-    /** Formats a duration in ms as "M:SS" (or "H:MM:SS" past an hour). */
+    /** Unknown metadata must not be presented as a real zero-length track. */
+    fun formatTrackDuration(durationMs: Long): String =
+        if (durationMs > 0) formatTime(durationMs) else "\u2014"
+
+    /** Formats a playback clock in ms as "M:SS" (or "H:MM:SS" past an hour). */
     fun formatTime(timeMs: Long): String {
         val totalSeconds = (timeMs / 1000).coerceAtLeast(0)
         val hours = totalSeconds / 3600
@@ -136,6 +140,7 @@ object MusicLogic {
      */
     fun isAudioFile(name: String, mimeType: String?): Boolean =
         mimeType?.trim()?.startsWith("audio/", ignoreCase = true) == true ||
+            name.endsWith(".mp4", true) ||
             name.endsWith(".mp3", true) ||
             name.endsWith(".m4a", true) ||
             name.endsWith(".flac", true) ||

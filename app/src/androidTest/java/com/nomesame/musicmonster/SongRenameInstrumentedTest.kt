@@ -41,6 +41,26 @@ class SongRenameInstrumentedTest {
    .putInt(8000).putInt(16000).putShort(2).putShort(16).put("data".toByteArray()).putInt(size)
   repeat(size/2) { buffer.putShort((kotlin.math.sin(it*0.1)*1000).toInt().toShort()) };return buffer.array()
  }
+ /** Finish publishing/indexing owned fixtures before testing a mutation of indexed media.
+  * Otherwise the scanner started by closing the writer can race the rename/readback.
+  * https://developer.android.com/training/data-storage/shared/media
+  */
+ private fun publishFixture(uri:Uri) {
+  if(Build.VERSION.SDK_INT>=29) assertEquals(1,resolver.update(uri,ContentValues().apply {
+   put(MediaStore.MediaColumns.IS_PENDING,0)
+  },null,null))
+  val path=resolver.query(uri,arrayOf(MediaStore.MediaColumns.DATA),null,null,null)!!.use {
+   assertTrue(it.moveToFirst());it.getString(0)
+  }
+  val finished=java.util.concurrent.CountDownLatch(1)
+  var scanned:Uri?=null
+  android.media.MediaScannerConnection.scanFile(context,arrayOf(path),arrayOf("audio/wav")) { _, result ->
+   scanned=result;finished.countDown()
+  }
+  assertTrue("Owned fixture indexing did not complete",finished.await(10,java.util.concurrent.TimeUnit.SECONDS))
+  assertNotNull("Owned fixture was not indexed",scanned)
+  assertEquals(ContentUris.parseId(uri),ContentUris.parseId(scanned!!))
+ }
  @Test fun safRenamesActualFileReturnsNewUriAndRecoversEveryPlaylistOccurrence() {
   val song=fixture();val newName="renamed"+UUID.randomUUID();val oldBytes=resolver.openInputStream(song.uri)!!.use { it.readBytes() }
   prefs.edit().putString("library_tree_uri",tree.toString())
@@ -74,7 +94,10 @@ class SongRenameInstrumentedTest {
   val values=ContentValues().apply {
    put(MediaStore.Audio.Media.DISPLAY_NAME,oldName);put(MediaStore.Audio.Media.MIME_TYPE,"audio/wav")
    put(MediaStore.Audio.Media.IS_MUSIC,1);put(MediaStore.Audio.Media.TITLE,"Old")
-   if(Build.VERSION.SDK_INT>=29) put(MediaStore.Audio.Media.RELATIVE_PATH,"Music/MusicMonsterRenameTests/")
+   if(Build.VERSION.SDK_INT>=29) {
+    put(MediaStore.Audio.Media.RELATIVE_PATH,"Music/MusicMonsterRenameTests/")
+    put(MediaStore.MediaColumns.IS_PENDING,1)
+   }
    else {
     val file=File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC),oldName)
     file.parentFile!!.mkdirs();file.writeBytes(wav());created+=file;put(MediaStore.Audio.Media.DATA,file.absolutePath)
@@ -82,6 +105,7 @@ class SongRenameInstrumentedTest {
   }
   val uri=resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,values)!!;media+=uri
   resolver.openOutputStream(uri,"w")!!.use { it.write(wav()) }
+  publishFixture(uri)
   val song=Song(ContentUris.parseId(uri).toString(),"Old",uri,10000,oldName)
   val takenName="taken"+UUID.randomUUID()+".wav"
   val collisionValues=ContentValues(values).apply {
@@ -93,6 +117,7 @@ class SongRenameInstrumentedTest {
   }
   val taken=resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,collisionValues)!!;media+=taken
   resolver.openOutputStream(taken,"w")!!.use { it.write(wav()) }
+  publishFixture(taken)
   assertEquals(RenameOutcome.Error(RenameError.NAME_EXISTS),SongRenameRepository(context).rename(song,oldName,takenName,true))
   assertArrayEquals(wav(),resolver.openInputStream(taken)!!.use { it.readBytes() })
   assertEquals(oldName,SongRenameRepository(context).name(song))

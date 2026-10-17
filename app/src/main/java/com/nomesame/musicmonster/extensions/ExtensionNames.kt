@@ -2,7 +2,7 @@ package com.nomesame.musicmonster.extensions
 
 /** Names are untrusted metadata, never paths. */
 object ExtensionNames {
-    private val audioExtensions = setOf("mp3", "wav", "flac", "m4a", "aac", "ogg", "opus", "wma", "aiff", "amr")
+    private val audioExtensions = setOf("mp4", "mp3", "wav", "flac", "m4a", "aac", "ogg", "opus", "wma", "aiff", "amr")
     fun valid(name: String): Boolean = name.length in 5..180 && name == name.trim() &&
         !name.startsWith('.') && name.none { it.isISOControl() || it in "/\\:*?\"<>|" } &&
         name.substringAfterLast('.', "").lowercase() in audioExtensions

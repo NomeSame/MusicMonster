@@ -118,4 +118,8 @@
     <string name="seek_backward">Back %1$d seconds</string>
     <string name="seek_forward">Forward %1$d seconds</string>
     <string name="seek_buttons_enabled">Skip buttons</string>
+    <string name="video_show">Show video</string>
+    <string name="video_close">Continue with audio</string>
+    <string name="video_shrink">Shrink</string>
+    <string name="video_pip_unavailable">Picture-in-picture is unavailable. Check that it is allowed in Android settings.</string>
 </resources>
