@@ -14,38 +14,88 @@ import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowContentResolver
 
+/**
+ * Contract for MainActivity's persistable SAF grants.
+ *
+ * The `OpenDocumentTree`/`OpenDocument` callbacks are thin wiring: they hand the
+ * chosen [Uri] to a single private helper, so the persisted flag mask is pinned
+ * here by invoking exactly that helper — the same seam the callback uses.
+ * Driving the real ActivityResult launcher instead would need onCreate/Compose/
+ * ViewModel plus a fake `startActivityForResult` round-trip, which adds no
+ * coverage over the helper call it would ultimately reach. Therefore this test
+ * pins the helper contract and documents the limitation.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [24, 34], shadows = [UriGrantContractShadow::class])
 class UriPermissionBoundaryTest {
-    @Before fun setup() { UriGrantContractShadow.modes.clear() }
-    private fun invokeReadGrant(tree: Boolean) {
+
+    @Before fun setup() { UriGrantContractShadow.reset() }
+
+    private fun invoke(method: String, uri: Uri) {
         val activity = Robolectric.buildActivity(MainActivity::class.java).get()
-        val method = MainActivity::class.java.declaredMethods.single { it.name == "takeReadPermission" }
-        method.isAccessible = true
-        val uri = Uri.parse("content://probe/${if (tree) "tree" else "document"}/chosen")
-        // The old helper had a boolean selecting the broken tree flags. The
-        // corrected helper shares a single read-only grant for both pickers.
-        if (method.parameterCount == 2) method.invoke(activity, uri, tree)
-        else method.invoke(activity, uri)
+        val target = MainActivity::class.java.declaredMethods.single { it.name == method }
+        target.isAccessible = true
+        target.invoke(activity, uri)
     }
-    @Test fun folderGrantUsesOnlyTheAcceptedReadMode() {
-        invokeReadGrant(true)
-        assertEquals(listOf(Intent.FLAG_GRANT_READ_URI_PERMISSION), UriGrantContractShadow.modes)
+
+    private fun folderUri() = Uri.parse("content://probe/tree/chosen")
+
+    @Test fun folderCallbackPersistsReadAndWriteWhenProviderOffersWrite() {
+        UriGrantContractShadow.writable = true
+        invoke("takeFolderPermission", folderUri())
+        assertEquals(listOf(READ or WRITE), UriGrantContractShadow.persisted.map { it.second })
     }
-    @Test fun backgroundGrantUsesOnlyTheAcceptedReadMode() {
-        invokeReadGrant(false)
-        assertEquals(listOf(Intent.FLAG_GRANT_READ_URI_PERMISSION), UriGrantContractShadow.modes)
+
+    @Test fun folderCallbackFallsBackToReadOnlyWithoutWriteOffer() {
+        invoke("takeFolderPermission", folderUri())
+        assertEquals(listOf(READ), UriGrantContractShadow.persisted.map { it.second })
+    }
+
+    @Test fun backgroundPickerStaysReadOnly() {
+        invoke("takeReadPermission", Uri.parse("content://probe/image/picked"))
+        assertEquals(listOf(READ), UriGrantContractShadow.persisted.map { it.second })
+    }
+
+    @Test fun releaseReleasesBothModesSoOldGrantsDoNotLinger() {
+        invoke("releaseReadPermission", folderUri())
+        assertEquals(listOf(READ or WRITE), UriGrantContractShadow.released.map { it.second })
+    }
+
+    private companion object {
+        val READ = Intent.FLAG_GRANT_READ_URI_PERMISSION
+        val WRITE = Intent.FLAG_GRANT_WRITE_URI_PERMISSION
     }
 }
 
 @Implements(ContentResolver::class)
 class UriGrantContractShadow : ShadowContentResolver() {
+
     @Implementation override fun takePersistableUriPermission(uri: Uri, mode: Int) {
-        modes.add(mode)
-        // Match UriGrantsManagerService's checkFlagsArgument: persistability
-        // belongs to the offered Intent grant, not this read/write mode mask.
+        // Match UriGrantsManagerService's checkFlagsArgument: only the
+        // read/write mode bits are legal here; PERSISTABLE describes the
+        // offered Intent grant, not this mask.
         require(mode and (Intent.FLAG_GRANT_READ_URI_PERMISSION or
             Intent.FLAG_GRANT_WRITE_URI_PERMISSION).inv() == 0)
+        if (mode and Intent.FLAG_GRANT_WRITE_URI_PERMISSION != 0 && !writable) {
+            // A provider that only offered read rejects the combined persist.
+            throw SecurityException("provider did not offer write access")
+        }
+        persisted.add(uri to mode)
     }
-    companion object { val modes = mutableListOf<Int>() }
+
+    @Implementation override fun releasePersistableUriPermission(uri: Uri, mode: Int) {
+        released.add(uri to mode)
+    }
+
+    companion object {
+        /** Whether the fake provider offered write access in the current test. */
+        var writable = false
+        val persisted = mutableListOf<Pair<Uri, Int>>()
+        val released = mutableListOf<Pair<Uri, Int>>()
+        fun reset() {
+            writable = false
+            persisted.clear()
+            released.clear()
+        }
+    }
 }

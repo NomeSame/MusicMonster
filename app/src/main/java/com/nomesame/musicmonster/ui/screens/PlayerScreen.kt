@@ -34,6 +34,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Folder
@@ -72,9 +73,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nomesame.musicmonster.MainViewModel
 import com.nomesame.musicmonster.MusicLogic
+import com.nomesame.musicmonster.state.entryVisible
 import com.nomesame.musicmonster.ui.components.AccentPickerDialog
 import com.nomesame.musicmonster.ui.components.ArtworkCropDialog
 import com.nomesame.musicmonster.ui.components.AppSettingsButton
+import com.nomesame.musicmonster.ui.components.ImportDialog
 import com.nomesame.musicmonster.ui.components.AppBackground
 import com.nomesame.musicmonster.ui.components.FastScroller
 import com.nomesame.musicmonster.ui.components.rememberBackgroundBitmap
@@ -119,6 +122,8 @@ fun PlayerScreen(
     }
     var showAccentPicker by rememberSaveable { mutableStateOf(false) }
     var showArtworkCrop by rememberSaveable { mutableStateOf(false) }
+    val importState by viewModel.importState.collectAsState()
+    var showImport by rememberSaveable { mutableStateOf(false) }
     val artworkCrop by viewModel.artworkCrop.position.collectAsState()
     val artworkPreview by viewModel.artworkCrop.preview.collectAsState()
     val artworkPreviewLoading by viewModel.artworkCrop.loading.collectAsState()
@@ -210,6 +215,15 @@ fun PlayerScreen(
                     color = textWarm,
                     modifier = Modifier.weight(1f)
                 )
+                if (importState.entryVisible) {
+                    IconButton(onClick = { showImport = true }, modifier = Modifier.testTag("import_entry")) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = stringResource(R.string.import_url_title),
+                            tint = iconGlow
+                        )
+                    }
+                }
                 IconButton(onClick = { showAccentPicker = true }) {
                     Icon(
                         imageVector = Icons.Default.Palette,
@@ -622,6 +636,16 @@ fun PlayerScreen(
             if (showArtworkCrop) {
                 ArtworkCropDialog(artworkPreview, artworkPreviewLoading, artworkCrop, customBgScrim,
                     viewModel.artworkCrop::setPosition, { showArtworkCrop = false })
+            }
+
+            if (showImport) {
+                ImportDialog(
+                    state = importState,
+                    onStart = viewModel::startImport,
+                    onCancel = viewModel::cancelImport,
+                    onPickFolder = onPickFolder,
+                    onDismiss = { showImport = false }
+                )
             }
 
             // After picking an image, offer to adopt a matching accent theme.

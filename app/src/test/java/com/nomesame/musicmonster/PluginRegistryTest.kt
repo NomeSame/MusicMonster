@@ -228,4 +228,126 @@ class PluginRegistryTest {
         }
         assertEquals(listOf(PluginProbe.Result.UNAVAILABLE, PluginProbe.Result.INCOMPATIBLE), results)
     }
+
+    /** A plugin that answers HELLO and CAPS: the reported bitmask is the CAPS_REPLY `arg1`. */
+    private fun capabilityServer(
+        onCaps: (Message) -> Unit = { it.replyTo?.send(
+            Message.obtain(null, PluginProtocol.CAPS_REPLY, PluginProtocol.CAP_IMPORT, 0)) },
+        helloVersion: Int = PluginProtocol.VERSION,
+    ): Messenger = Messenger(Handler(Looper.getMainLooper()) { request ->
+        when (request.what) {
+            PluginProtocol.HELLO -> request.replyTo?.send(
+                Message.obtain(null, PluginProtocol.HELLO_REPLY, helloVersion, PluginProtocol.READY))
+            PluginProtocol.CAPS -> onCaps(request)
+        }
+        true
+    })
+
+    @Test fun capabilityReplyIsReportedAfterReady() {
+        val service = candidate()
+        register(service)
+        val component = ComponentName(service.packageName, service.name)
+        val binding = BindingContext(context)
+        val results = mutableListOf<PluginProbe.CapabilityResult>()
+        PluginProbe(binding).use { probe ->
+            probe.probeCapabilities(component, results::add)
+            binding.connection!!.onServiceConnected(component, capabilityServer().binder)
+            shadowOf(Looper.getMainLooper()).idle()
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(
+                listOf(PluginProbe.CapabilityResult(PluginProbe.Result.READY, PluginProtocol.CAP_IMPORT)),
+                results)
+            assertEquals(1, binding.unbinds)
+        }
+        assertEquals(1, binding.unbinds)
+    }
+
+    @Test fun zeroCapabilityReplyMeansNoImportCapability() {
+        val service = candidate()
+        register(service)
+        val component = ComponentName(service.packageName, service.name)
+        val binding = BindingContext(context)
+        val results = mutableListOf<PluginProbe.CapabilityResult>()
+        val server = capabilityServer(onCaps = { it.replyTo?.send(
+            Message.obtain(null, PluginProtocol.CAPS_REPLY, 0, 0)) })
+        PluginProbe(binding).use { probe ->
+            probe.probeCapabilities(component, results::add)
+            binding.connection!!.onServiceConnected(component, server.binder)
+            shadowOf(Looper.getMainLooper()).idle()
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(listOf(PluginProbe.CapabilityResult(PluginProbe.Result.READY, 0)), results)
+        }
+    }
+
+    @Test fun silentCapabilityRequestStaysReadyWithoutCapabilities() {
+        val service = candidate()
+        register(service)
+        val component = ComponentName(service.packageName, service.name)
+        val binding = BindingContext(context)
+        val results = mutableListOf<PluginProbe.CapabilityResult>()
+        var capsRequests = 0
+        val server = capabilityServer(onCaps = { capsRequests++ })
+        PluginProbe(binding).use { probe ->
+            probe.probeCapabilities(component, results::add)
+            binding.connection!!.onServiceConnected(component, server.binder)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(1, capsRequests)
+            assertTrue(results.isEmpty())
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(PluginProbe.CAPABILITY_TIMEOUT_MS))
+            assertEquals(listOf(PluginProbe.CapabilityResult(PluginProbe.Result.READY, 0)), results)
+            assertEquals(1, binding.unbinds)
+        }
+        assertEquals(1, binding.unbinds)
+    }
+
+    @Test fun lateCapabilityReplyAfterCloseIsDropped() {
+        val service = candidate()
+        register(service)
+        val component = ComponentName(service.packageName, service.name)
+        val binding = BindingContext(context)
+        val results = mutableListOf<PluginProbe.CapabilityResult>()
+        var capsReplyTo: Messenger? = null
+        val server = capabilityServer(onCaps = { capsReplyTo = it.replyTo })
+        PluginProbe(binding).use { probe ->
+            probe.probeCapabilities(component, results::add)
+            binding.connection!!.onServiceConnected(component, server.binder)
+            shadowOf(Looper.getMainLooper()).idle()
+            probe.close()
+            requireNotNull(capsReplyTo).send(
+                Message.obtain(null, PluginProtocol.CAPS_REPLY, PluginProtocol.CAP_IMPORT, 0))
+            shadowOf(Looper.getMainLooper()).idle()
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(PluginProbe.CAPABILITY_TIMEOUT_MS))
+            assertTrue(results.isEmpty())
+        }
+    }
+
+    @Test fun incompatibleHelloNeverRequestsCapabilities() {
+        val service = candidate()
+        register(service)
+        val component = ComponentName(service.packageName, service.name)
+        val binding = BindingContext(context)
+        val results = mutableListOf<PluginProbe.CapabilityResult>()
+        var capsRequests = 0
+        val server = capabilityServer({ capsRequests++ }, helloVersion = PluginProtocol.VERSION + 1)
+        PluginProbe(binding).use { probe ->
+            probe.probeCapabilities(component, results::add)
+            binding.connection!!.onServiceConnected(component, server.binder)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(0, capsRequests)
+            assertEquals(
+                listOf(PluginProbe.CapabilityResult(PluginProbe.Result.INCOMPATIBLE, 0)), results)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(4))
+        }
+    }
+
+    @Test fun unknownComponentReportsUnavailableCapabilitiesWithoutBinding() {
+        register()
+        val results = mutableListOf<PluginProbe.CapabilityResult>()
+        PluginProbe(context as android.app.Application).use { probe ->
+            probe.probeCapabilities(ComponentName("unknown", "unknown.Service"), results::add)
+        }
+        assertEquals(
+            listOf(PluginProbe.CapabilityResult(PluginProbe.Result.UNAVAILABLE, 0)), results)
+        assertNull(shadowOf(context as android.app.Application).nextStartedService)
+    }
 }

@@ -163,6 +163,7 @@ class MusicService : Service() {
         const val PREF_SHUFFLE_ENABLED = PlaybackStateRepository.KEY_SHUFFLE
         const val ACTION_TOGGLE_SHUFFLE = "com.nomesame.musicmonster.action.TOGGLE_SHUFFLE"
         const val ACTION_RELOAD_LIBRARY = "com.nomesame.musicmonster.action.RELOAD_LIBRARY"
+        const val ACTION_REFRESH_LIBRARY_CATALOG = "com.nomesame.musicmonster.action.REFRESH_LIBRARY_CATALOG"
         const val ACTION_SET_SLEEP_TIMER = "com.nomesame.musicmonster.action.SET_SLEEP_TIMER"
         const val ACTION_CANCEL_SLEEP_TIMER = "com.nomesame.musicmonster.action.CANCEL_SLEEP_TIMER"
         const val ACTION_PLAY_PLAYLIST = "com.nomesame.musicmonster.action.PLAY_PLAYLIST"
@@ -180,7 +181,7 @@ class MusicService : Service() {
         var sessionToken: MediaSessionCompat.Token? = null
 
         /** Commands that are meaningless until the library scan has finished. */
-        private val NEEDS_LIBRARY = setOf(ACTION_PLAY_PLAYLIST, ACTION_RELOAD_LIBRARY)
+        private val NEEDS_LIBRARY = setOf(ACTION_PLAY_PLAYLIST, ACTION_RELOAD_LIBRARY, ACTION_REFRESH_LIBRARY_CATALOG)
     }
 
     private fun updateNotificationChannel() {
@@ -396,26 +397,35 @@ class MusicService : Service() {
      * scan is in flight, so a play request that arrives during startup is
      * executed afterwards instead of silently dropped.
      */
-    private fun loadLibraryAsync(restoreLastSession: Boolean) {
+    private fun loadLibraryAsync(restoreLastSession: Boolean, preserveQueue: Boolean = false) {
         loadExecutor.execute {
             val loaded = runCatching { loadDevicePlaylist() }.getOrElse {
                 // A misbehaving DocumentsProvider can throw anything at all.
                 // An unreadable library must not take the service down.
                 Triple(emptyList(), emptyList(), emptyMap())
             }
-            positionHandler.post { applyLibrary(loaded, restoreLastSession) }
+            positionHandler.post { applyLibrary(loaded, restoreLastSession, preserveQueue) }
         }
     }
 
     private fun applyLibrary(
         loaded: Triple<List<MediaItem>, List<String>, Map<String, Long>>,
         restoreLastSession: Boolean,
+    ) = applyLibrary(loaded, restoreLastSession, preserveQueue = false)
+
+    private fun applyLibrary(
+        loaded: Triple<List<MediaItem>, List<String>, Map<String, Long>>,
+        restoreLastSession: Boolean,
+        preserveQueue: Boolean,
     ) {
         if (playerReleased) return
         val (items, itemTitles, _) = loaded
-        titles = itemTitles
         libraryItems = items.associateBy { it.mediaId }
         libraryTitles = items.zip(itemTitles).associate { it.first.mediaId to it.second }
+        // Imports update the catalogue used by later explicit play requests. The live queue,
+        // its duplicate occurrences/titles, shuffle order and player state stay untouched.
+        if (preserveQueue) return
+        titles = itemTitles
 
         if (restoreLastSession) {
             restoringPlayback = true
@@ -458,12 +468,22 @@ class MusicService : Service() {
      * library was still loading.
      */
     private fun startPlayback(mediaId: String?) {
-        if (player.mediaItemCount == 0) return
+        if (player.mediaItemCount == 0 && mediaId == null) return
         if (mediaId != null) {
             val targetIndex = (0 until player.mediaItemCount)
                 .firstOrNull { player.getMediaItemAt(it).mediaId == mediaId }
-                ?: return
-            player.seekTo(targetIndex, 0L)
+            if (targetIndex != null) {
+                player.seekTo(targetIndex, 0L)
+            } else {
+                val catalogue = libraryItems.values.toList()
+                val index = catalogue.indexOfFirst { it.mediaId == mediaId }
+                if (index < 0) return
+                // Only this explicit user play request may put newly imported songs into a queue.
+                titles = catalogue.map { libraryTitles[it.mediaId].orEmpty() }
+                player.setMediaItems(catalogue, index, 0L)
+                player.prepare()
+                if (player.shuffleModeEnabled) reshufflePlaylist()
+            }
         }
         if (player.playbackState == Player.STATE_IDLE) player.prepare()
         player.play()
@@ -517,6 +537,10 @@ class MusicService : Service() {
     }
 
     private fun handleCommand(intent: Intent?): Int {
+        if (intent?.action == ACTION_REFRESH_LIBRARY_CATALOG) {
+            loadLibraryAsync(restoreLastSession = false, preserveQueue = true)
+            return START_STICKY
+        }
         if (intent?.action == ACTION_TOGGLE_SHUFFLE) {
             val newMode = if (player.shuffleModeEnabled) {
                 PlaybackStateCompat.SHUFFLE_MODE_NONE

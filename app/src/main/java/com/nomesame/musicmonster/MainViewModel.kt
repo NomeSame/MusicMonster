@@ -17,6 +17,8 @@ import com.nomesame.musicmonster.audio.EqualizerController
 import com.nomesame.musicmonster.data.MediaAppearanceRepository
 import com.nomesame.musicmonster.playback.MediaArtworkLoader
 import com.nomesame.musicmonster.data.BackgroundRepository
+import com.nomesame.musicmonster.data.ImportJobStateRepository
+import com.nomesame.musicmonster.data.LibraryImportWriter
 import com.nomesame.musicmonster.data.SeekSettingsRepository
 import com.nomesame.musicmonster.data.LanguageRepository
 import com.nomesame.musicmonster.model.AppLanguage
@@ -29,6 +31,12 @@ import com.nomesame.musicmonster.data.unitFloat
 import com.nomesame.musicmonster.data.PlaylistCodec
 import com.nomesame.musicmonster.model.Playlist
 import com.nomesame.musicmonster.playback.PlaybackConnection
+import com.nomesame.musicmonster.plugin.ImportJobClient
+import com.nomesame.musicmonster.plugin.PluginProbe
+import com.nomesame.musicmonster.plugin.PluginRegistry
+import com.nomesame.musicmonster.state.ImportCapabilityCoordinator
+import com.nomesame.musicmonster.state.ImportController
+import com.nomesame.musicmonster.state.ImportState
 import com.nomesame.musicmonster.ui.theme.DefaultAccent
 import com.nomesame.musicmonster.ui.theme.PaletteEngine
 import kotlinx.coroutines.Dispatchers
@@ -91,6 +99,54 @@ class MainViewModel(application: Application, savedState: SavedStateHandle = Sav
 
     val equalizerController = EqualizerController()
     val playbackConnection = PlaybackConnection(application, seekSettingsRepository::buttonsEnabled)
+
+    /** Import flow. The controller owns the single job and all rules; the ViewModel only wires
+     *  the controller to storage/refresh, exposes its state and re-negotiates the capability on
+     *  every activity start.
+     */
+    private val importJobStore = ImportJobStateRepository(prefs)
+    val importController = ImportController(
+        session = ImportJobClient(application),
+        writer = LibraryImportWriter(application),
+        currentTarget = ::libraryTreeUri,
+        onLibraryChanged = ::onImportLibraryChanged,
+        jobStore = importJobStore,
+        parentScope = viewModelScope,
+    )
+    val importState: StateFlow<ImportState> = importController.state
+
+    private val importCapability = ImportCapabilityCoordinator(
+        controller = importController,
+        components = { PluginRegistry(application).available() },
+        newProbe = { PluginProbe(application) },
+    )
+
+    /** Probes the plugin capability for the current start/resume (never persisted) and lets the
+     *  controller re-attach to a running job. Call from the Activity's onStart. */
+    fun refreshImportCapability() = importCapability.refresh()
+
+    /** Releases the probe binding in onStop; capability is re-negotiated on the next start. */
+    fun closeImportProbe() = importCapability.close()
+
+    /** Starts exactly one import job; invalid input/missing capability/second start are refused. */
+    fun startImport(url: String) {
+        importController.start(url)
+    }
+
+    /** Asks the plugin to cancel the active job; the terminal state arrives via status/result. */
+    fun cancelImport() {
+        importController.cancel()
+    }
+
+    /** After a successful write: reload the library so the new song is visible without a restart.
+     *  No autoplay, no queue/playlist/playback mutation. */
+    private fun onImportLibraryChanged() {
+        loadSongs()
+        if (MusicService.sessionToken != null) {
+            startPlaybackService(Intent(app, MusicService::class.java)
+                .setAction(MusicService.ACTION_REFRESH_LIBRARY_CATALOG))
+        }
+    }
 
     private val _songs = MutableStateFlow<List<Song>>(emptyList())
     val songs: StateFlow<List<Song>> = _songs.asStateFlow()
@@ -389,6 +445,8 @@ class MainViewModel(application: Application, savedState: SavedStateHandle = Sav
      */
     override fun onCleared() {
         artworkCrop.close()
+        importCapability.close()
+        importController.close()
         playbackConnection.disconnect()
         equalizerController.setupForSession(0)
         super.onCleared()

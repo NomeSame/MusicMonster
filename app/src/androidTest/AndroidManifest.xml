@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Test-only manifest, merged into the instrumented-test APK
+  (com.nomesame.musicmonster.test). It declares a real, exported SAF-style
+  content provider that backs the end-to-end import target tree.
+
+  Exported without a platform permission and with grantUriPermissions="true" so
+  the host app under test can access it exactly like a user-picked SAF folder:
+  the test APK grants the host a read+write URI permission for the tree, which
+  (a) gives access and (b) makes this package visible to the host under Android
+  11+ package-visibility filtering. Nothing here ships in the release app.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <service android:name="com.nomesame.musicmonster.E2eTreeGrantService"
+            android:exported="true" android:permission="com.nomesame.musicmonster.permission.BIND_PLUGIN" />
+        <provider
+            android:name="com.nomesame.musicmonster.E2eTreeDocumentsProvider"
+            android:authorities="com.nomesame.musicmonster.test.e2etree"
+            android:exported="true"
+            android:readPermission="android.permission.MANAGE_DOCUMENTS"
+            android:writePermission="android.permission.MANAGE_DOCUMENTS"
+            android:grantUriPermissions="true" />
+    </application>
+</manifest>

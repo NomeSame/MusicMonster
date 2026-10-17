@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
             // persisted URI permissions are capped per app (128 below API 30),
             // and re-picking a folder otherwise leaks one grant every time.
             viewModel.libraryTreeUri()?.takeIf { it != uri }?.let(::releaseReadPermission)
-            takeReadPermission(uri)
+            takeFolderPermission(uri)
             viewModel.saveLibraryTreeUri(uri)
             viewModel.loadSongs()
             viewModel.startMusicService()
@@ -53,20 +53,43 @@ class MainActivity : ComponentActivity() {
      * a failed persist must not take the app down.
      */
     private fun takeReadPermission(uri: Uri) {
-        // Only read/write modes are accepted here. PERSISTABLE describes the
-        // offered picker grant; passing it to this method is rejected by Android.
-        runCatching {
-            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
+        // Read-only grants (background image). Persisting is best-effort: some
+        // document providers (OEM file managers, cloud providers) hand out a URI
+        // they refuse to persist and throw SecurityException here. The resource
+        // still works for this session, so a failed persist must not take the
+        // app down.
+        persistPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
 
-    private fun releaseReadPermission(uri: Uri) {
-        runCatching {
-            contentResolver.releasePersistableUriPermission(
-                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-        }
+    /**
+     * The SAF library folder is also the write target for imported results, so
+     * a folder grant is persisted as READ|WRITE when the provider offered write
+     * access. The picker callback only hands back a [Uri] — the offered flags
+     * are not part of the result — so write access is probed by attempting the
+     * combined persist and falling back to read-only on SecurityException.
+     * Providers that grant only read therefore keep the previous behavior.
+     */
+    private fun takeFolderPermission(uri: Uri) {
+        val read = Intent.FLAG_GRANT_READ_URI_PERMISSION
+        val write = Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        if (!persistPermission(uri, read or write)) persistPermission(uri, read)
     }
+
+    // Only read/write modes are accepted here. PERSISTABLE describes the
+    // offered picker grant; passing it to this method is rejected by Android.
+    private fun persistPermission(uri: Uri, mode: Int): Boolean =
+        runCatching { contentResolver.takePersistableUriPermission(uri, mode) }.isSuccess
+
+    private fun releaseReadPermission(uri: Uri) {
+        // Release both modes so an old write grant cannot linger; fall back to
+        // read-only for grants that never included write.
+        val read = Intent.FLAG_GRANT_READ_URI_PERMISSION
+        val write = Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        if (!releasePermission(uri, read or write)) releasePermission(uri, read)
+    }
+
+    private fun releasePermission(uri: Uri, mode: Int): Boolean =
+        runCatching { contentResolver.releasePersistableUriPermission(uri, mode) }.isSuccess
 
     private val exportPlaylistsLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -156,6 +179,19 @@ class MainActivity : ComponentActivity() {
         }
         // Initialize the MediaController once the service has created its session.
         viewModel.connectPlayback()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Re-negotiate the plugin capability on every start: the answer is never persisted, so a
+        // removed plugin, a HELLO-only build or an incompatible version hides the import entry.
+        viewModel.refreshImportCapability()
+    }
+
+    override fun onStop() {
+        // Release the probe binding; the player and any running import job stay untouched.
+        viewModel.closeImportProbe()
+        super.onStop()
     }
 
     override fun onResume() {

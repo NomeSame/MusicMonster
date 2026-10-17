@@ -20,6 +20,28 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [24, 34])
 class PlaybackRestoreRegressionTest {
+    @Test fun explicitPlayCanSelectAnImportWhenThePreviousQueueWasEmpty() {
+        val lifecycle = Robolectric.buildService(MusicService::class.java).create()
+        val service = lifecycle.get()
+        try {
+            (field(service, "loadExecutor") as ExecutorService).submit {}.get(5, TimeUnit.SECONDS)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+            val player = field(service, "player") as ExoPlayer
+            player.clearMediaItems()
+            val imported = MediaItem.Builder().setMediaId("new-import")
+                .setUri("file:///isolated-import.wav").build()
+            MusicService::class.java.getDeclaredMethod("applyLibrary", Triple::class.java,
+                Boolean::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
+                .apply { isAccessible = true }
+                .invoke(service, Triple(listOf(imported), listOf("Imported"), emptyMap<String, Long>()), false, true)
+            assertEquals(0, player.mediaItemCount)
+            MusicService::class.java.getDeclaredMethod("startPlayback", String::class.java)
+                .apply { isAccessible = true }.invoke(service, "new-import")
+            assertEquals("new-import", player.currentMediaItem?.mediaId)
+            assertTrue(player.playWhenReady)
+        } finally { lifecycle.destroy() }
+    }
+
     @Test fun startupKeepsSavedSongPositionAndShuffleBeforePlayerCallbacksRun() {
         val app = ApplicationProvider.getApplicationContext<Application>()
         val prefs = app.getSharedPreferences("music_prefs", Context.MODE_PRIVATE)

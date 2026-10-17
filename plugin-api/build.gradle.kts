@@ -17,3 +17,8 @@ android {
     }
     kotlinOptions { jvmTarget = "11" }
 }
+
+dependencies {
+    // Plain JVM unit tests only; the contract is framework-free by design.
+    testImplementation(libs.junit)
+}
