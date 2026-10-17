@@ -18,4 +18,6 @@ object ExtensionContract {
     const val EXTRA_REQUEST = "extension_request"
     const val EXTRA_NAME = "extension_name"
     const val EXTRA_LANGUAGE = "extension_language"
+    // Optional presentation hint; absent in older v1 callers.
+    const val EXTRA_ACCENT_COLOR = "extension_accent_color"
 }

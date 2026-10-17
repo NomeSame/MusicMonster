@@ -70,4 +70,8 @@ class ExtensionRegistryTest {
         install()
         assertTrue(ExtensionRegistry(context).actions().isNotEmpty())
     }
+    @Test fun moduleSuppliesItsToolbarIconWithoutPlayerFeatureKnowledge() {
+        install().icon = android.R.drawable.ic_menu_save
+        assertEquals(android.R.drawable.ic_menu_save, ExtensionRegistry(context).actions().single().iconResource)
+    }
 }

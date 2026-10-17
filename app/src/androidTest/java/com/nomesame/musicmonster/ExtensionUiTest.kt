@@ -27,7 +27,8 @@ class ExtensionUiTest {
         }
         compose.onNodeWithTag("extension_action").assertDoesNotExist()
         compose.runOnIdle { actions = listOf(ExtensionAction(ComponentName("fixture", "Producer"), "Create audio")) }
-        compose.onNodeWithText("Create audio").assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("Create audio").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Create audio").assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, calls); busy = true }
         compose.onNodeWithTag("extension_action").assertIsNotEnabled()
         compose.runOnIdle { actions = emptyList(); busy = false }

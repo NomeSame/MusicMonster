@@ -67,6 +67,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
@@ -210,8 +211,18 @@ fun PlayerScreen(
                     text = stringResource(R.string.app_name),
                     style = MaterialTheme.typography.headlineMedium,
                     color = textWarm,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
+                if (!selection.active) {
+                    val extensionActions by viewModel.extensions.actions.collectAsState()
+                    val extensionBusy by viewModel.extensions.busy.collectAsState()
+                    val extensionFailed by viewModel.extensions.failed.collectAsState()
+                    com.nomesame.musicmonster.ui.components.ExtensionActions(extensionActions, extensionBusy, extensionFailed,
+                        { action -> viewModel.extensions.start(action, viewModel.libraryTreeUri(), appLanguage.tag, appColors.accent.toArgb()) },
+                        viewModel.extensions::cancel, viewModel.extensions::dismissError)
+                }
                 IconButton(onClick = { showAccentPicker = true }) {
                     Icon(
                         imageVector = Icons.Default.Palette,
@@ -265,14 +276,7 @@ fun PlayerScreen(
                 }
             }
 
-            if (!selection.active) {
-                val extensionActions by viewModel.extensions.actions.collectAsState()
-                val extensionBusy by viewModel.extensions.busy.collectAsState()
-                val extensionFailed by viewModel.extensions.failed.collectAsState()
-                com.nomesame.musicmonster.ui.components.ExtensionActions(extensionActions, extensionBusy, extensionFailed,
-                    { action -> viewModel.extensions.start(action, viewModel.libraryTreeUri(), appLanguage.tag) },
-                    viewModel.extensions::cancel, viewModel.extensions::dismissError)
-            }
+
 
             Box(
                 modifier = Modifier

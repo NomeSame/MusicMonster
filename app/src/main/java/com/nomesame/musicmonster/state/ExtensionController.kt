@@ -42,19 +42,19 @@ class ExtensionController(
     val requests = launches.receiveAsFlow()
     private val folderSelections = Channel<Unit>(Channel.CONFLATED)
     val folderRequests = folderSelections.receiveAsFlow()
-    private var awaitingFolder: Pair<ExtensionAction, String>? = null
+    private var awaitingFolder: Triple<ExtensionAction, String, Int?>? = null
     private var finishing = false
     private var cancelRequested = false
 
     fun refresh() { _actions.value = registry.actions() }
     fun dismissError() { _failed.value = false }
 
-    fun start(action: ExtensionAction, tree: Uri?, language: String) {
+    fun start(action: ExtensionAction, tree: Uri?, language: String, accentColor: Int? = null) {
         if (_busy.value) return
         if (!registry.contains(action.component)) { _failed.value = true; refresh(); return }
         _failed.value = false
         if (tree == null) {
-            awaitingFolder = action to language
+            awaitingFolder = Triple(action, language, accentColor)
             _busy.value = true
             folderSelections.trySend(Unit)
             return
@@ -74,6 +74,7 @@ class ExtensionController(
                     putExtra(Contract.EXTRA_VERSION, Contract.VERSION)
                     putExtra(Contract.EXTRA_REQUEST, request)
                     putExtra(Contract.EXTRA_LANGUAGE, language)
+                    accentColor?.let { putExtra(Contract.EXTRA_ACCENT_COLOR, it) }
                 })
             } catch (_: Exception) {
                 withContext(Dispatchers.IO + NonCancellable) {
@@ -123,7 +124,7 @@ class ExtensionController(
         val pending = awaitingFolder ?: return
         awaitingFolder = null
         _busy.value = false
-        if (tree != null) start(pending.first, tree, pending.second)
+        if (tree != null) start(pending.first, tree, pending.second, pending.third)
     }
 
     fun needsFolder(): Boolean = awaitingFolder != null
