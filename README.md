@@ -123,10 +123,11 @@ The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
 download code or an engine. Optional compatible modules must be embedded in the same
 APK; installing a separate app does not add actions to this build.
 
-Library folder navigation, media presets, progressive loading, and the optional
-generic document-sequence interface currently live on
-[`feature/library-organisation`](https://github.com/NomeSame/MusicMonster/tree/feature/library-organisation).
-They have not yet been merged into `master`.
+`master` includes nested folder navigation with Back, an all-tracks view with
+relative paths, five media sort/filter presets, and progressive library loading.
+The optional generic document-sequence interface is also included. These changes
+were integrated through [PR #1](https://github.com/NomeSame/MusicMonster/pull/1);
+they are not automatically included in previously published APKs.
 
 For device/emulator tests:
 
@@ -139,15 +140,15 @@ Signing keys and machine-specific configuration are not included in the reposito
 
 ## ✅ Development status
 
-Validation of **`feature/library-organisation`**, not the published APK:
-**20 October 2026**.
+Validation of the library code now included in **`master`**, not the published APK:
+**20 October 2026**, with local build/test checks repeated before the merge on **21 October 2026**.
 
 - **693 local unit/API/Robolectric test executions passed**, with no failures or skipped tests.
 - Debug and release builds, the Android test APK, and lint checks completed successfully.
 - **124 instrumented tests passed on a physical API 33 device**, using separate test
   app data and owned fixtures. API 24, API 30, and API 35/36 validation remains open.
 
-On that feature branch, large folders use batched document-provider queries and show titles before
+Large folders use batched document-provider queries and show titles before
 reading media durations. Missing durations load in the background and display a dash
 until available; validated duration metadata is cached across launches. Refreshing
 or switching folders cancels obsolete work and preserves the current view during a
