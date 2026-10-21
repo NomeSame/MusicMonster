@@ -1,5 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <provider android:name=".fixtures.LibraryDocumentsProvider"
+            android:authorities="${applicationId}.library-fixture" android:exported="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS" android:grantUriPermissions="true">
+            <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER" /></intent-filter>
+        </provider>
         <activity android:name=".fixtures.ExtensionProbeActivity" android:exported="true" />
         <provider android:name=".fixtures.RenameDocumentsProvider"
             android:authorities="${applicationId}.rename-fixture" android:exported="true"

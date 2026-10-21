@@ -52,10 +52,11 @@ fun FastScroller(
     modifier: Modifier = Modifier,
     accent: Color,
     textWarm: Color,
-    textMuted: Color
+    textMuted: Color,
+    leadingItemCount: Int = 0,
 ) {
-    val total = songs.size
-    if (total == 0) return
+    val total = songs.size + leadingItemCount
+    if (songs.isEmpty()) return
 
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
@@ -70,7 +71,7 @@ fun FastScroller(
     // firstVisibleItemIndex/layoutInfo change every scroll frame; reading them
     // directly in composition would recompose the whole scroller per frame, so
     // they are hoisted into a derived state that only recomposes on change.
-    val progress by remember {
+    val progress by remember(total) {
         derivedStateOf {
             val firstVisible = lazyListState.firstVisibleItemIndex
             val visibleCount = lazyListState.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
@@ -91,7 +92,8 @@ fun FastScroller(
         dragY = y.coerceIn(0f, trackHeightPx)
         val fraction = (y / trackHeightPx).coerceIn(0f, 1f)
         val index = (fraction * (total - 1)).roundToInt().coerceIn(0, total - 1)
-        val letter = songs[index].title.firstOrNull()?.uppercase(java.util.Locale.ROOT) ?: ""
+        val letter = songs.getOrNull(index - leadingItemCount)?.title?.firstOrNull()
+            ?.uppercase(java.util.Locale.ROOT) ?: "/"
         if (letter != dragLetter) {
             dragLetter = letter
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -113,7 +115,7 @@ fun FastScroller(
                 .padding(end = 12.dp)
                 .systemGestureExclusion()
                 .onSizeChanged { trackHeightPx = it.height.toFloat() }
-                .pointerInput(songs) {
+                .pointerInput(songs, leadingItemCount) {
                     // Grab immediately on touch-down in the zone and release
                     // reliably on up/cancel, so the thumb never gets "stuck".
                     awaitEachGesture {

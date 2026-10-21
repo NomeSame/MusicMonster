@@ -54,6 +54,16 @@ class MainViewModel(application: Application, savedState: SavedStateHandle = Sav
 
     private val playlistRepository = PlaylistRepository(prefs, application.contentResolver)
     private val songRepository = SongRepository(application, prefs)
+    val library = com.nomesame.musicmonster.state.LibraryController(
+        com.nomesame.musicmonster.data.LibrarySettingsRepository(prefs), savedState)
+    private var libraryCatalog = com.nomesame.musicmonster.model.LibraryCatalog()
+    private val libraryLoader = com.nomesame.musicmonster.state.LibraryLoadController(
+        viewModelScope, songRepository::observeCatalog,
+        { catalog, complete ->
+            libraryCatalog = catalog
+            applyLibrarySongs(catalog.songs, complete)
+        }, ::loadPlaylists)
+    val libraryScanning = libraryLoader.scanning
     private val seekSettingsRepository = SeekSettingsRepository(prefs)
     private val _seekButtonsEnabled = MutableStateFlow(seekSettingsRepository.buttonsEnabled())
     val seekButtonsEnabled: StateFlow<Boolean> = _seekButtonsEnabled.asStateFlow()
@@ -109,12 +119,15 @@ class MainViewModel(application: Application, savedState: SavedStateHandle = Sav
         }
         songSelection.remap(old.id, renamed.id)
         _songs.value = MusicLogic.sortNatural(_songs.value.map { if (it.id == old.id) renamed else it })
+        libraryCatalog = libraryCatalog.copy(songs = _songs.value)
+        library.update(libraryCatalog)
         if (MusicService.sessionToken != null) {
             startPlaybackService(Intent(app, MusicService::class.java)
                 .setAction(MusicService.ACTION_RENAME_SONG)
                 .putExtra("rename_old_id", old.id).putExtra("rename_new_id", renamed.id)
                 .putExtra("rename_uri", renamed.uri.toString()).putExtra("rename_title", renamed.title))
         }
+        loadSongs() // Cancel a stale metadata pass that still contains the old document ID.
     }
 
     private val _songs = MutableStateFlow<List<Song>>(emptyList())
@@ -246,15 +259,14 @@ class MainViewModel(application: Application, savedState: SavedStateHandle = Sav
      * only ever showed up on other people's devices.
      */
     fun loadSongs() {
-        viewModelScope.launch {
-            applyLibrarySongs(withContext(Dispatchers.IO) { songRepository.load() })
-            loadPlaylists() // Recovery may have replaced document IDs during the scan.
-        }
+        libraryLoader.refresh()
     }
 
-    internal fun applyLibrarySongs(loaded: List<Song>) {
+    internal fun applyLibrarySongs(loaded: List<Song>, complete: Boolean = true) {
         _songs.value = loaded
-        songSelection.retain(loaded.map { it.id })
+        libraryCatalog = libraryCatalog.copy(songs = loaded)
+        library.update(libraryCatalog)
+        if (complete) songSelection.retain(loaded.map { it.id })
     }
 
     fun loadPlaylists() {

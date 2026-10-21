@@ -21,6 +21,13 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.ResultReceiver
+import com.nomesame.musicmonster.extension.api.DocumentSequence as Sequence
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Lifecycle-owned orchestration for optional document producers, with a persisted destination. */
 class ExtensionController(
@@ -45,6 +52,53 @@ class ExtensionController(
     private var awaitingFolder: Triple<ExtensionAction, String, Int?>? = null
     private var finishing = false
     private var cancelRequested = false
+    private val outputLock = Mutex()
+
+    private fun documentChannel(requestId: String): ResultReceiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
+        override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
+            if (resultCode != Sequence.COMMIT_NEXT || resultData == null) return
+            val data = Bundle(resultData)
+            @Suppress("DEPRECATION")
+            val reply = data.getParcelable<ResultReceiver>(Sequence.REPLY) ?: return
+            val nonce = data.getString(Sequence.NONCE) ?: return
+            scope.launch {
+                outputLock.withLock {
+                    var successor: Uri? = null
+                    var committed = false
+                    try {
+                        check(!cancelRequested && !finishing)
+                        val pending = requireNotNull(journal.read())
+                        check(pending.id == requestId && data.getString(Sequence.REQUEST) == requestId)
+                        check(pending.output.toString() == data.getString(Sequence.OUTPUT))
+                        check(registry.contains(pending.component))
+                        val name = requireNotNull(data.getString(Sequence.NAME))
+                        // Allocate before publication: inability to prepare a successor must
+                        // not produce an acknowledged success without a usable next slot.
+                        successor = withContext(Dispatchers.IO) { documents.create(pending.tree) }
+                        context.revokeUriPermission(pending.output, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                        withContext(Dispatchers.IO) { documents.complete(pending.tree, pending.output, name) }
+                        committed = true
+                        withContext(Dispatchers.IO + NonCancellable) {
+                            check(journal.save(pending.copy(output = successor!!)))
+                        }
+                        onCompleted()
+                        check(!cancelRequested && !finishing && registry.contains(pending.component))
+                        context.grantUriPermission(pending.component.packageName, successor, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                        reply.send(Sequence.OK, Bundle().apply {
+                            putString(Sequence.NONCE, nonce)
+                            putString(Sequence.OUTPUT, successor.toString())
+                        })
+                    } catch (_: Exception) {
+                        if (successor != null) withContext(Dispatchers.IO + NonCancellable) {
+                            if (documents.discard(successor!!) && committed) journal.clear()
+                        }
+                        if (!cancelRequested) _failed.value = true
+                        reply.send(Sequence.ERROR, Bundle().apply { putString(Sequence.NONCE, nonce) })
+                    }
+                }
+            }
+        }
+    }
 
     fun refresh() { _actions.value = registry.actions() }
     fun dismissError() { _failed.value = false }
@@ -74,6 +128,7 @@ class ExtensionController(
                     putExtra(Contract.EXTRA_VERSION, Contract.VERSION)
                     putExtra(Contract.EXTRA_REQUEST, request)
                     putExtra(Contract.EXTRA_LANGUAGE, language)
+                    putExtra(Sequence.EXTRA_CHANNEL, documentChannel(request))
                     accentColor?.let { putExtra(Contract.EXTRA_ACCENT_COLOR, it) }
                 })
             } catch (_: Exception) {
@@ -89,9 +144,11 @@ class ExtensionController(
 
     fun result(code: Int, data: Intent?) {
         if (finishing) return
-        val pending = journal.read() ?: return
         finishing = true
         scope.launch {
+          outputLock.withLock {
+            val pending = journal.read()
+            if (pending == null) { _busy.value = false; finishing = false; return@withLock }
             val uri = pending.output
             val component = pending.component
             var completed = false
@@ -116,6 +173,7 @@ class ExtensionController(
                 finishing = false
             }
             if (completed) onCompleted()
+          }
         }
     }
 

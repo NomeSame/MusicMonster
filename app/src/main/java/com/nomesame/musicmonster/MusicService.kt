@@ -645,7 +645,7 @@ class MusicService : Service() {
 
     // Share the exact same provider handling, filtering and ordering as the UI.
     private fun loadDevicePlaylist(): Triple<List<MediaItem>, List<String>, Map<String, Long>> {
-        val songs = com.nomesame.musicmonster.data.SongRepository(this, prefs).load()
+        val songs = com.nomesame.musicmonster.data.SongRepository(this, prefs).scanCatalog().songs
         return Triple(
             songs.map { MediaItem.Builder().setMediaId(it.id).setUri(it.uri).build() },
             songs.map { it.title },

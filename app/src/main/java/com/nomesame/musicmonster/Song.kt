@@ -27,5 +27,10 @@ data class Song(
     val fileName: String? = null,
     /** Parent SAF document, needed to reject sibling filename collisions. */
     val parentUri: Uri? = null,
+    val mimeType: String? = null,
+    /** Relative folder names, including the selected library root. */
+    val folderPath: List<String> = emptyList(),
+    val sizeBytes: Long = 0,
+    val modifiedMs: Long = 0,
 )
 

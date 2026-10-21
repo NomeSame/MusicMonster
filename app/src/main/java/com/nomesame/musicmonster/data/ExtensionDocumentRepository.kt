@@ -48,10 +48,20 @@ class ExtensionDocumentRepository(private val context: Context) {
         return renamed
     }
 
-    fun discard(uri: Uri): Boolean = try {
-        val exists = resolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID), null, null, null)
-            ?.use { it.moveToFirst() } ?: return false
+    fun discard(uri: Uri): Boolean { return try {
+        var name: String? = null
+        val exists = resolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                if (!cursor.moveToFirst()) false else { name = cursor.getString(0); true }
+            } ?: return false
+        // A commit may have renamed this same URI before a crash/cancellation. Never
+        // delete a published media document while recovering its former staging journal.
+        if (exists) {
+            val actual = name ?: return false
+            if (!actual.startsWith(".extension-") || !actual.endsWith(".partial")) return true
+        }
         !exists || DocumentsContract.deleteDocument(resolver, uri)
     } catch (_: java.io.FileNotFoundException) { true }
     catch (_: Exception) { false }
+    }
 }

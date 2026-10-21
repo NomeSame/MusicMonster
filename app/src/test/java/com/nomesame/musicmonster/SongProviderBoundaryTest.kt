@@ -69,6 +69,14 @@ class SongProviderBoundaryTest {
                 val ids = if (uri.lastPathSegment == "children") children else listOf(id)
                 val requested = projection ?: columns
                 return object : MatrixCursor(requested) {
+                    override fun getString(column: Int): String? {
+                        // Bulk cursors must expose a corrupt child on that row too;
+                        // failing only a per-file query would never exercise the new reader.
+                        if (uri.lastPathSegment == "children" && position == children.indexOf(broken) &&
+                            requested[column] == DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                            throw IllegalStateException("child metadata is unreadable")
+                        return super.getString(column)
+                    }
                     override fun close() {
                         super.close()
                         if (id == broken) throw IllegalStateException("child cursor died on close")
