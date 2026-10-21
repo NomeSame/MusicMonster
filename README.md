@@ -5,16 +5,17 @@ organize playlists, shape the sound, and make the player look your way.
 
 **Android 7.0 or newer · No account required · No Internet permission**
 
-### 1. Hauptansicht
+### Your library and player
 
 <p align="center">
-  <img src="docs/1-hauptansicht.png" alt="1. Hauptansicht — music library and player" width="300">
+  <img src="https://raw.githubusercontent.com/NomeSame/MusicMonster/master/docs/1-hauptansicht.png" alt="1. Hauptansicht — music library and player" width="300">
 </p>
 
 ## ⬇️ Download & install
 
-Check **[Releases](https://github.com/NomeSame/MusicBox/releases)** for published APKs.
-If no APK is available yet, you can build the app from source using the instructions below.
+Download a published APK from **[MusicMonster-Release](https://github.com/NomeSame/MusicMonster-Release/releases/latest)**.
+This repository contains the player source code. Source builds and development branches
+can include changes that are not yet in the latest published APK.
 
 1. Download the release `.apk` to your Android device.
 2. Open it from your browser's downloads or your file manager.
@@ -28,7 +29,7 @@ If no APK is available yet, you can build the app from source using the instruct
 <summary>Example: allowing installation from your browser or file manager</summary>
 
 <p align="center">
-  <img src="docs/install-unknown-apps.png" alt="Android's Allow from this source setting" width="300">
+  <img src="https://raw.githubusercontent.com/NomeSame/MusicMonster/master/docs/install-unknown-apps.png" alt="Android's Allow from this source setting" width="300">
 </p>
 
 </details>
@@ -40,6 +41,8 @@ enabled. Review any warning before installing; a warning is not proof that an AP
 
 - **Your music, locally:** load the device audio library or a chosen folder, including subfolders.
   Common formats include MP3, M4A, FLAC, OGG, and WAV; decoding support depends on your device.
+- **Local video in the source build:** play MP4 files from your chosen folder and
+  use Android picture-in-picture on supported devices.
 - **Natural sorting and fast scrolling:** numbered titles sort naturally, with a draggable
   scrollbar and letter indicator for larger libraries.
 - **Background playback:** play/pause, previous/next, seeking, shuffle, repeating playback,
@@ -62,19 +65,19 @@ Explore the playlist, equalizer, and personalization screens below.
 ### 2. Playlists
 
 <p align="center">
-  <img src="docs/2-playlists.jpg" alt="2. Playlists — a playlist with songs" width="300">
+  <img src="https://raw.githubusercontent.com/NomeSame/MusicMonster/master/docs/2-playlists.jpg" alt="2. Playlists — a playlist with songs" width="300">
 </p>
 
 ### 3. Equalizer
 
 <p align="center">
-  <img src="docs/3-equalizer.jpg" alt="3. Equalizer — bands, presets, and bass boost" width="300">
+  <img src="https://raw.githubusercontent.com/NomeSame/MusicMonster/master/docs/3-equalizer.jpg" alt="3. Equalizer — bands, presets, and bass boost" width="300">
 </p>
 
 ### 4. Personalisation
 
 <p align="center">
-  <img src="docs/4-personalisierung.jpg" alt="4. Personalisierung — color and background settings" width="300">
+  <img src="https://raw.githubusercontent.com/NomeSame/MusicMonster/master/docs/4-personalisierung.jpg" alt="4. Personalisierung — color and background settings" width="300">
 </p>
 
 ## 🔒 Privacy & permissions
@@ -92,7 +95,7 @@ file provider, that provider manages its own network access independently of Mus
 
 ## 🔄 Updates
 
-Check [Releases](https://github.com/NomeSame/MusicBox/releases) for newer APKs.
+Check [Releases](https://github.com/NomeSame/MusicMonster-Release/releases) for newer APKs.
 Install the update over the existing app to retain its settings and playlists.
 The APK must use the same application ID and signing certificate, and Android must accept
 its version. An incompatible signing certificate prevents an in-place update.
@@ -101,7 +104,7 @@ Export your playlists before uninstalling: uninstalling removes the app's local 
 
 ## 🛠️ Build from source
 
-The repository is named **MusicBox**; the installed app is **Music Monster**
+The repository is named **MusicMonster**; the installed app is **Music Monster**
 (`com.nomesame.musicmonster`). It uses Kotlin, Jetpack Compose, and AndroidX Media3.
 
 1. Open the project in Android Studio with support for Android Gradle Plugin 8.13.2.
@@ -116,6 +119,15 @@ The repository is named **MusicBox**; the installed app is **Music Monster**
 
 The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
 
+`master` is the public player branch. It builds independently, without private
+download code or an engine. Optional compatible modules must be embedded in the same
+APK; installing a separate app does not add actions to this build.
+
+Library folder navigation, media presets, progressive loading, and the optional
+generic document-sequence interface currently live on
+[`feature/library-organisation`](https://github.com/NomeSame/MusicMonster/tree/feature/library-organisation).
+They have not yet been merged into `master`.
+
 For device/emulator tests:
 
 ```powershell
@@ -127,13 +139,22 @@ Signing keys and machine-specific configuration are not included in the reposito
 
 ## ✅ Development status
 
-Latest local validation: **5 October 2026**.
+Validation of **`feature/library-organisation`**, not the published APK:
+**20 October 2026**.
 
-- **445 local unit/Robolectric test executions passed**, with no failures or skipped tests.
+- **693 local unit/API/Robolectric test executions passed**, with no failures or skipped tests.
 - Debug and release builds, the Android test APK, and lint checks completed successfully.
-- **42 instrumented tests are compiled; the current device test run remains pending.**
-  No device or emulator was connected for the latest validation. Compatibility testing
-  is intended to cover API 24, API 30, and API 35/36.
+- **124 instrumented tests passed on a physical API 33 device**, using separate test
+  app data and owned fixtures. API 24, API 30, and API 35/36 validation remains open.
+
+On that feature branch, large folders use batched document-provider queries and show titles before
+reading media durations. Missing durations load in the background and display a dash
+until available; validated duration metadata is cached across launches. Refreshing
+or switching folders cancels obsolete work and preserves the current view during a
+refresh of the same folder tree.
+
+Initial-display tests do not establish smooth scrolling. Scroll performance is
+still under investigation; a release-build frame measurement remains open.
 
 Recent fixes improve playlist imports and ID allocation, folder permissions, library
 scanning, Unicode title sorting, playback-session cleanup, image decoding bounds,
@@ -142,7 +163,7 @@ and sleep-timer behavior.
 ## 💬 Feedback
 
 Bug reports and feedback are welcome in
-[Issues](https://github.com/NomeSame/MusicBox/issues).
+[Issues](https://github.com/NomeSame/MusicMonster/issues).
 Please include your app version, Android version, device model, and steps to reproduce.
 For playback problems, include the audio format and whether the file came from the device
 library or a selected folder.
