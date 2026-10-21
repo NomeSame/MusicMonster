@@ -122,4 +122,15 @@
     <string name="video_close">Continue with audio</string>
     <string name="video_shrink">Shrink</string>
     <string name="video_pip_unavailable">Picture-in-picture is unavailable. Check that it is allowed in Android settings.</string>
+    <string name="library_videos_first">Video first</string>
+    <string name="library_audio_first">Audio first</string>
+    <string name="library_title_order">All A–Z</string>
+    <string name="library_only_video">Video only</string>
+    <string name="library_only_audio">Audio only</string>
+    <string name="library_all">All titles</string>
+    <string name="library_folders">Folders</string>
+    <string name="library_back">Parent folder</string>
+    <string name="library_options">Library views and sorting</string>
+    <string name="library_empty">No matching titles here. Change the filter or open a folder.</string>
+    <string name="library_loading">Reading folder…</string>
 </resources>

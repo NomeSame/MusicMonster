@@ -21,7 +21,13 @@ class VideoPipInstrumentedTest {
         // leaves the test frame clock paused and never attaches the AndroidView player.
         try { compose.waitUntil(15_000, condition) }
         catch (error: ComposeTimeoutException) {
-            throw AssertionError("PiP condition timed out: ${details()}", error)
+            val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+            val windows = instrumentation.uiAutomation.windows.joinToString { window ->
+                val bounds = android.graphics.Rect()
+                window.getBoundsInScreen(bounds)
+                "type=${window.type}, package=${window.root?.packageName}, bounds=$bounds"
+            }
+            throw AssertionError("PiP condition timed out: ${details()}; windows=$windows", error)
         }
     }
     @Test fun buttonAndHomeUsePipAndMaximizeKeepsTheSamePlayerWhileClosingPauses() {
@@ -41,6 +47,9 @@ class VideoPipInstrumentedTest {
             compose.waitUntil(15_000) { compose.onAllNodesWithText(fixture.name).fetchSemanticsNodes().isNotEmpty() }
             val model = main { ViewModelProvider(host)[MainViewModel::class.java] }
             val song = model.songs.value.single { it.title == fixture.name }
+            compose.waitUntil(15_000) {
+                compose.onAllNodes(hasTestTag("song_row_" + song.id) and hasText("0:08")).fetchSemanticsNodes().isNotEmpty()
+            }
             compose.onNodeWithTag("song_row_" + song.id).assert(hasText("0:08"))
             val connection = VideoPlaybackConnection(fixture.context)
             main { connection.connect() }
@@ -118,12 +127,27 @@ class VideoPipInstrumentedTest {
                     assertTrue(main { player.playWhenReady })
                     // Open Android's actual PiP menu and click its X. Calling Activity.finish()
                     // during the entry animation is not equivalent to a system-window dismissal.
-                    val position = main {
-                        val decor = requireNotNull(video).window.decorView
-                        val location = IntArray(2)
-                        decor.getLocationOnScreen(location)
-                        (location[0] + decor.width / 2) to (location[1] + decor.height / 2)
+                    // PiP transforms/scales the activity surface. Its decor coordinates
+                    // need not match the system window on screen (notably on MIUI).
+                    // Tap the actual accessibility window after its entry bounds settle.
+                    var pipBounds = android.graphics.Rect()
+                    var boundsChangedAt = SystemClock.uptimeMillis()
+                    await {
+                        val window = inst.uiAutomation.windows.firstOrNull {
+                            it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION &&
+                                it.root?.packageName?.toString() == fixture.context.packageName
+                        }
+                        val current = android.graphics.Rect()
+                        window?.getBoundsInScreen(current)
+                        if (current != pipBounds) {
+                            pipBounds = current
+                            boundsChangedAt = SystemClock.uptimeMillis()
+                        }
+                        // App display metrics can themselves shrink to the PiP window.
+                        // isInPictureInPictureMode was already asserted above.
+                        !current.isEmpty && SystemClock.uptimeMillis() - boundsChangedAt >= 200
                     }
+                    val position = pipBounds.centerX() to pipBounds.centerY()
                     inst.uiAutomation.executeShellCommand("input tap ${position.first} ${position.second}").use {
                         java.io.FileInputStream(it.fileDescriptor).use { input -> input.readBytes() }
                     }

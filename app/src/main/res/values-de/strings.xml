@@ -122,4 +122,15 @@
     <string name="video_close">Als Audio weiterhören</string>
     <string name="video_shrink">Verkleinern</string>
     <string name="video_pip_unavailable">Bild-in-Bild ist nicht verfügbar. Prüfe, ob es in den Android-Einstellungen erlaubt ist.</string>
+    <string name="library_videos_first">Video zuerst</string>
+    <string name="library_audio_first">Audio zuerst</string>
+    <string name="library_title_order">Alle A–Z</string>
+    <string name="library_only_video">Nur Video</string>
+    <string name="library_only_audio">Nur Audio</string>
+    <string name="library_all">Alle Titel</string>
+    <string name="library_folders">Ordner</string>
+    <string name="library_back">Übergeordneter Ordner</string>
+    <string name="library_options">Bibliotheksansicht und Sortierung</string>
+    <string name="library_empty">Hier gibt es keine passenden Titel. Filter wechseln oder einen Ordner öffnen.</string>
+    <string name="library_loading">Ordner wird eingelesen…</string>
 </resources>

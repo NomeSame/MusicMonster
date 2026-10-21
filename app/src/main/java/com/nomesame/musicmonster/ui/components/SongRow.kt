@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -58,7 +59,9 @@ fun SongRow(
     selectionMode: Boolean = false,
     isSelected: Boolean = false,
     existingCount: Int = 0,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    pathLabel: String? = null,
+    isVideo: Boolean = false,
 ) {
     val highlight = animateColorAsState(
         if (selectionMode && isSelected) accent.copy(alpha = 0.12f) else Color.Transparent,
@@ -94,7 +97,7 @@ fun SongRow(
             )
         }
         Icon(
-            imageVector = Icons.Default.MusicNote,
+            imageVector = if (isVideo) Icons.Default.Movie else Icons.Default.MusicNote,
             contentDescription = null,
             tint = if (isCurrent) accent else textMuted,
             modifier = Modifier.size(20.dp)
@@ -109,6 +112,8 @@ fun SongRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            if (pathLabel != null) Text(pathLabel, color = textMuted,
+                style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (selectionMode && existingCount > 0) {
                 Text(
                     text = pluralStringResource(R.plurals.already_in_playlist, existingCount, existingCount),

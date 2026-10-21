@@ -99,12 +99,15 @@ fun PlayerScreen(
     val equalizerController = viewModel.equalizerController
     val playlists = viewModel.playlists
     val songs = viewModel.songs.collectAsState().value
+    val library by viewModel.library.view.collectAsState()
+    val libraryScanning by viewModel.libraryScanning.collectAsState()
+    val visibleSongs = library.songs
     val currentTitle = playbackConnection.nowPlayingTitle.collectAsState().value ?: stringResource(R.string.no_song_selected)
     val currentId = playbackConnection.nowPlayingId.collectAsState().value
     val playing = playbackConnection.isPlaying.collectAsState().value
     val shuffled = playbackConnection.isShuffled.collectAsState().value
     val currentVideo = songs.firstOrNull { it.id == currentId }?.let {
-        (it.fileName ?: it.uri.lastPathSegment.orEmpty()).endsWith(".mp4", ignoreCase = true)
+        com.nomesame.musicmonster.LibraryOrganization.isVideo(it.fileName ?: it.uri.lastPathSegment, it.mimeType)
     } == true
     var expanded by remember { mutableStateOf(false) }
     var isScrubbing by rememberSaveable { mutableStateOf(false) }
@@ -124,6 +127,10 @@ fun PlayerScreen(
         if (selection.targetPlaylistId != null) expanded = true
         viewModel.songSelection.finish()
     }
+    BackHandler(enabled = !selection.active && library.canGoBack) { viewModel.library.back() }
+    LaunchedEffect(selection.active, selection.targetPlaylistId) {
+        if (selection.active && selection.targetPlaylistId != null) viewModel.library.showAll()
+    }
     var showAccentPicker by rememberSaveable { mutableStateOf(false) }
     var showArtworkCrop by rememberSaveable { mutableStateOf(false) }
     val artworkCrop by viewModel.artworkCrop.position.collectAsState()
@@ -135,6 +142,7 @@ fun PlayerScreen(
     }
     val swipePagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
     val listState = rememberLazyListState()
+    LaunchedEffect(library.preset, library.browsing, library.folder?.id) { listState.scrollToItem(0) }
 
     LaunchedEffect(playing, isScrubbing) {
         while (playing && !isScrubbing) {
@@ -146,10 +154,10 @@ fun PlayerScreen(
     // On first open, scroll the list to the restored/current song so it doesn't
     // sit at the top after the app was fully closed and reopened.
     var didInitialScroll by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(currentId, songs) {
-        if (!didInitialScroll && currentId != null && songs.isNotEmpty()) {
-            val idx = songs.indexOfFirst { it.id == currentId }
-            if (idx >= 0) listState.scrollToItem(idx)
+    LaunchedEffect(currentId, visibleSongs) {
+        if (!didInitialScroll && currentId != null && visibleSongs.isNotEmpty()) {
+            val idx = visibleSongs.indexOfFirst { it.id == currentId }
+            if (idx >= 0) listState.scrollToItem(idx + library.folders.size)
             didInitialScroll = true
         }
     }
@@ -247,7 +255,7 @@ fun PlayerScreen(
                 if (selecting) {
                     SongSelectionBar(
                         count = selection.ids.size,
-                        allSelected = selection.allSelected(songs.map { it.id }),
+                        allSelected = selection.allSelected(visibleSongs.map { it.id }),
                         hasPlaylists = if (selection.targetPlaylistId != null) targetPlaylist != null else playlists.isNotEmpty(),
                         onAdd = {
                             if (targetPlaylist != null) {
@@ -255,7 +263,7 @@ fun PlayerScreen(
                             } else selectionDialog = "add"
                         },
                         onCreate = { newPlaylistName = ""; selectionDialog = "create" },
-                        onToggleAll = { viewModel.songSelection.toggleAll(songs.map { it.id }) },
+                        onToggleAll = { viewModel.songSelection.toggleAll(visibleSongs.map { it.id }) },
                         onClose = {
                             selectionDialog = null
                             if (selection.targetPlaylistId != null) expanded = true
@@ -265,18 +273,10 @@ fun PlayerScreen(
                         onRename = { songs.firstOrNull { it.id in selection.ids }?.let(viewModel.songRename::open) }
                     )
                 } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = onPickFolder, modifier = Modifier.testTag("folder_picker")) {
-                            Icon(Icons.Default.Folder, stringResource(R.string.open_folder), tint = iconGlow)
-                        }
-                        Text(stringResource(R.string.music), color = textWarm,
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.clickable(onClick = onPickFolder))
-                    }
+                    com.nomesame.musicmonster.ui.components.LibraryToolbar(library, iconGlow, textWarm,
+                        onPickFolder, viewModel.library::back, viewModel.library::showAll,
+                        viewModel.library::toggleFolders, viewModel.library::nextPreset,
+                        viewModel.library::setPreset)
                 }
             }
 
@@ -410,55 +410,20 @@ fun PlayerScreen(
                         .fillMaxSize().testTag("song_list_foreground")
                         .graphicsLayer { translationY = pullProgress * size.height }
                 ) {
-                    if (songs.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(
-                                text = stringResource(R.string.no_songs_found),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = textMuted
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = 16.dp)
-                        ) {
-                            itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
-                                SongRow(
-                                    title = song.title,
-                                    durationLabel = MusicLogic.formatTrackDuration(song.durationMs),
-                                    isCurrent = song.id == currentId,
-                                    textWarm = textWarm,
-                                    textMuted = textMuted,
-                                    accent = iconGlow,
-                                    onClick = {
-                                        if (selection.active) viewModel.songSelection.toggle(song.id)
-                                        else playbackConnection.playFromMediaId(song.id)
-                                    },
-                                    onLongClick = {
-                                        if (selection.active) viewModel.songSelection.toggle(song.id)
-                                        else viewModel.songSelection.start(song.id)
-                                    },
-                                    selectionMode = selection.active,
-                                    isSelected = song.id in selection.ids,
-                                    existingCount = existingCounts[song.id] ?: 0,
-                                    modifier = Modifier.testTag("song_row_" + song.id)
-                                )
-                                if (index < songs.lastIndex) {
-                                    Divider(color = dividerWarm)
-                                }
-                            }
-                        }
-
-                        FastScroller(
-                            lazyListState = listState,
-                            songs = songs,
-                            modifier = Modifier.fillMaxSize(),
-                            accent = iconGlow,
-                            textWarm = textWarm,
-                            textMuted = textMuted
-                        )
+                    com.nomesame.musicmonster.ui.components.LibrarySongList(
+                        library, listState, currentId, selection.active, selection.ids, existingCounts,
+                        textWarm, textMuted, iconGlow, viewModel.library::open,
+                        onSong = { song ->
+                            if (selection.active) viewModel.songSelection.toggle(song.id)
+                            else playbackConnection.playFromMediaId(song.id)
+                        },
+                        onLongSong = { song ->
+                            if (selection.active) viewModel.songSelection.toggle(song.id)
+                            else viewModel.songSelection.start(song.id)
+                        }, scanning = libraryScanning)
+                    if (libraryScanning) {
+                        androidx.compose.material3.LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().testTag("library_loading"), color = iconGlow)
                     }
                 }
             }
